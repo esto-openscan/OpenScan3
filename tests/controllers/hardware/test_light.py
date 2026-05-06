@@ -99,5 +99,22 @@ def test_lightcontroller_get_status(light_config_with_pins, idle_callbacks):
     assert isinstance(status, dict)
     assert status["name"] == "test_light"
     assert status["is_on"] is False  # Light not turned on after initializing
+    assert status["value"] == 100.0
     assert isinstance(status["settings"], dict)
     assert status["settings"]["pins"] == light_config_with_pins.pins
+
+
+@pytest.mark.asyncio
+async def test_set_value_clamps_and_updates_status(light_config_with_pins, idle_callbacks):
+    light = Light(name="test_light", settings=light_config_with_pins)
+    controller = LightController(light)
+    controller.set_idle_callbacks(*idle_callbacks)
+
+    await controller.set_value(150)
+    assert controller.get_status()["value"] == 100
+
+    await controller.set_value(-2)
+    assert controller.get_status()["value"] == 0
+
+    await controller.set_value(42.5)
+    assert controller.get_status()["value"] == 42.5
