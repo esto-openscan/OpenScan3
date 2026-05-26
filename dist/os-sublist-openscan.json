@@ -15,6 +15,7 @@
         "pi5",
         "pi4",
         "pi400",
+        "pi3",
         "all"
       ],
       "init_format": "cloudinit-rpi"
@@ -34,6 +35,7 @@
         "pi5",
         "pi4",
         "pi400",
+        "pi3",
         "all"
       ],
       "init_format": "cloudinit-rpi"
@@ -73,6 +75,7 @@
         "pi5",
         "pi4",
         "pi400",
+        "pi3",
         "all"
       ],
       "init_format": "cloudinit-rpi"
@@ -92,6 +95,7 @@
         "pi5",
         "pi4",
         "pi400",
+        "pi3",
         "all"
       ],
       "init_format": "cloudinit-rpi"
