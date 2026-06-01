@@ -85,6 +85,8 @@ import time
 
 logger = logging.getLogger(__name__)
 
+_LINUXPY_INTERNAL_CAMERA_CARDS = {"unicam", "bcm2835-isp", "rp1-cfe", "pispbe"}
+
 # Current scanner model
 
 def _create_default_scanner_device() -> ScannerDevice:
@@ -346,12 +348,18 @@ def _detect_cameras() -> Dict[str, Camera]:
         linuxpycameras = iter_video_capture_devices()
         for cam in linuxpycameras:
             cam.open()
-            if cam.info.card not in ("unicam", "bcm2835-isp"):
+            card_name = str(cam.info.card)
+            if card_name.lower() not in _LINUXPY_INTERNAL_CAMERA_CARDS:
                 cameras[cam.info.card] = Camera(
                     type=CameraType.LINUXPY,
                     name=cam.info.card,
                     path=str(cam.filename),
                     settings=CameraSettings()
+                )
+            else:
+                logger.debug(
+                    "Skipping internal V4L2 pipeline device '%s' for LinuxPy camera detection.",
+                    card_name,
                 )
             cam.close()
     except Exception as e:

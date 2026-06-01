@@ -22,12 +22,13 @@ def test_camera_report_returns_json(monkeypatch, tmp_path: Path):
     script.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
     monkeypatch.setattr(develop_router, "CAMERA_REPORT_SCRIPT", script)
 
-    def fake_run(cmd, capture_output, text, timeout, check):  # noqa: ANN001
+    def fake_run(cmd, capture_output, text, timeout, check, env):  # noqa: ANN001
         assert cmd == ["bash", str(script)]
         assert capture_output is True
         assert text is True
         assert timeout == 180
         assert check is False
+        assert "OPENSCAN_REPORT_PYTHON" in env
         return subprocess.CompletedProcess(cmd, 0, stdout="camera report\n", stderr="")
 
     monkeypatch.setattr(develop_router.subprocess, "run", fake_run)
@@ -38,13 +39,15 @@ def test_camera_report_returns_json(monkeypatch, tmp_path: Path):
     )
 
     with TestClient(_create_app()) as client:
-        response = client.get("/next/develop/camera-report")
+        response = client.get("/next/develop/camera-report?release_cameras=false")
 
     assert response.status_code == 200
     assert response.json() == {
         "ok": True,
         "return_code": 0,
         "script": str(script),
+        "camera_release": {"released": False, "reason": "disabled"},
+        "camera_restore": {"restored": [], "errors": []},
         "report": "camera report",
         "stderr": "",
         "gphoto2": {"available": True, "error": None, "detected": [], "cameras": []},
@@ -78,9 +81,10 @@ def test_camera_report_text_includes_gphoto2_section(monkeypatch, tmp_path: Path
     )
 
     with TestClient(_create_app()) as client:
-        response = client.get("/next/develop/camera-report?format=text")
+        response = client.get("/next/develop/camera-report?format=text&release_cameras=false")
 
     assert response.status_code == 200
+    assert "===== OpenScan camera release for external probes =====" in response.text
     assert "report body" in response.text
     assert "===== GPhoto2 python diagnostics =====" in response.text
     assert "\"available\": false" in response.text
