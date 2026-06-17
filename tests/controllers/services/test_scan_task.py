@@ -65,10 +65,9 @@ async def task_manager_fixture() -> TaskManager:
 
     from openscan_firmware.controllers.services.tasks.examples import demo_examples
 
-    tm.register_task("hello_world_async_task", demo_examples.HelloWorldAsyncTask)
+    tm.register_task("hello_world_progress_task", demo_examples.HelloWorldProgressTask)
     tm.register_task("hello_world_blocking_task", demo_examples.HelloWorldBlockingTask)
     tm.register_task("exclusive_demo_task", demo_examples.ExclusiveDemoTask)
-    tm.register_task("generator_task", demo_examples.ExampleTaskWithGenerator)
     tm.register_task("failing_task", demo_examples.FailingTask)
 
     yield tm
