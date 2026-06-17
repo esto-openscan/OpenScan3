@@ -440,12 +440,11 @@ async def crop_image(camera_name: str, threshold: int | None = Query(default=Non
 
 @router.post("/hello-world-async", response_model=Task)
 async def hello_world_async(total_steps: int, delay: float):
-    """Start the async hello world demo task."""
+    """Start the async hello world progress demo task."""
 
     task_manager = get_task_manager()
 
-    # Updated to explicit task_name with required _task suffix
-    task = await task_manager.create_and_run_task("hello_world_async_task", total_steps=total_steps, delay=delay)
+    task = await task_manager.create_and_run_task("hello_world_progress_task", total_steps=total_steps, interval=delay)
     return task
 
 

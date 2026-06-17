@@ -88,7 +88,7 @@ async def test_autodiscover_ignore_examples_package():
     )
 
     # Demo/example tasks should not be present (including crop_task, now an example)
-    assert "hello_world_async_task" not in tm._task_registry
+    assert "hello_world_progress_task" not in tm._task_registry
     assert "hello_world_blocking_task" not in tm._task_registry
     assert "exclusive_demo_task" not in tm._task_registry
     assert "crop_task" not in tm._task_registry
