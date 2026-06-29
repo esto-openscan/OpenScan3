@@ -152,11 +152,19 @@ async def lifespan(app: FastAPI):
     # Auto-start QR WiFi scan if enabled and no network is connected
     await _maybe_start_qr_wifi_scan(task_manager)
 
-    yield  # application runs here
-
-    # Code to run on shutdown
-    device_controller.cleanup_and_exit()
-    logging.shutdown()
+    try:
+        yield  # application runs here
+    finally:
+        logger.info("OpenScan3 service shutdown: starting hardware cleanup.")
+        try:
+            device_controller.cleanup_and_exit()
+        except Exception:
+            logger.exception("OpenScan3 service shutdown: hardware cleanup failed.")
+            raise
+        else:
+            logger.info("OpenScan3 service shutdown: hardware cleanup completed.")
+        finally:
+            logging.shutdown()
 
 
 app = FastAPI(

@@ -13,7 +13,7 @@ Environment=OPENSCAN_RUNTIME_DIR=/var/openscan3
 Environment=OPENSCAN_PROJECT_DIR=/var/openscan3/projects
 Environment=OPENSCAN_COMMUNITY_TASKS_DIR=/var/openscan3/community-tasks
 Environment=OPENSCAN_LOG_DIR=/var/log/openscan3
-ExecStart=/opt/openscan3/current/venv/bin/openscan-firmware serve --root-path /api --reload-trigger
+ExecStart=/opt/openscan3/current/venv/bin/openscan-firmware serve --root-path /api
 Restart=on-failure
 RestartSec=5s
 

@@ -1,7 +1,7 @@
 Source: openscan3-firmware
 Section: misc
 Priority: optional
-Maintainer: OpenScan3 Contributors <maintainers@openscan.org>
+Maintainer: OpenScan3 Contributors <info@openscan.eu>
 Build-Depends:
  debhelper-compat (= 13),
  libcap-dev,
@@ -16,6 +16,7 @@ Architecture: any
 Depends:
  ${misc:Depends},
  adduser,
+ nginx,
  python3,
  python3-pip,
  python3-venv
