@@ -1,0 +1,21 @@
+[Unit]
+Description=OpenScan3 firmware API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=openscan
+Group=openscan
+WorkingDirectory=/var/openscan3
+Environment=OPENSCAN_SETTINGS_DIR=/etc/openscan3
+Environment=OPENSCAN_RUNTIME_DIR=/var/openscan3
+Environment=OPENSCAN_PROJECT_DIR=/var/openscan3/projects
+Environment=OPENSCAN_COMMUNITY_TASKS_DIR=/var/openscan3/community-tasks
+Environment=OPENSCAN_LOG_DIR=/var/log/openscan3
+ExecStart=/opt/openscan3/current/venv/bin/openscan-firmware serve --root-path /api --reload-trigger
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

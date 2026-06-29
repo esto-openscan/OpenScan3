@@ -1,0 +1,25 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE=1
+
+PYPROJECT_VERSION := $(shell python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')
+WHEELHOUSE := debian/build-wheelhouse
+RELEASE_DIR := debian/openscan3-firmware/opt/openscan3/releases/$(PYPROJECT_VERSION)
+
+%:
+	dh $@
+
+override_dh_auto_clean:
+	dh_auto_clean
+	rm -rf build dist *.egg-info $(WHEELHOUSE)
+
+override_dh_auto_build:
+	mkdir -p $(WHEELHOUSE)
+	python3 -m pip wheel --wheel-dir $(WHEELHOUSE) .
+
+override_dh_auto_install:
+	mkdir -p $(RELEASE_DIR)/wheels
+	cp -a $(WHEELHOUSE)/*.whl $(RELEASE_DIR)/wheels/
+
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start
