@@ -109,7 +109,7 @@ case "$1" in
 
         install_release_venv "$version"
         update_current_link "$version"
-        # TODO: Prune older release directories after updater rollback semantics are defined.
+        # TODO: Prune older release directories after release-retention policy is defined.
         reload_and_restart_service
         ;;
 esac

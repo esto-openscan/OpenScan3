@@ -12,6 +12,7 @@ from openscan_firmware import __version__
 
 from openscan_firmware.routers import websocket as websocket_router
 from openscan_firmware.routers import system_update as system_update_router
+from openscan_firmware.routers import system_repair as system_repair_router
 from openscan_firmware.routers.v0_8 import (
     cameras as cameras_v0_8,
     motors as motors_v0_8,
@@ -209,6 +210,7 @@ next_ROUTERS = [
     lights_next.router,
     firmware_next.router,
     system_update_router.router,
+    system_repair_router.router,
     projects_next.router,
     openscan_next.router,
     device_next.router,
@@ -228,6 +230,7 @@ v0_9_ROUTERS = [
     lights_v0_9.router,
     firmware_v0_9.router,
     system_update_router.router,
+    system_repair_router.router,
     projects_v0_9.router,
     gpio_v0_9.router,
     openscan_v0_9.router,

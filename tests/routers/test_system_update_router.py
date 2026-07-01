@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from openscan_firmware.models.task import Task, TaskStatus
 from openscan_firmware.routers.system_update import router
+from openscan_firmware.routers.system_repair import router as repair_router
 from openscan_firmware import system_update
 
 
@@ -17,6 +18,7 @@ from openscan_firmware import system_update
 def update_client() -> TestClient:
     app = FastAPI()
     app.include_router(router, prefix="/latest")
+    app.include_router(repair_router, prefix="/latest")
     with TestClient(app) as client:
         yield client
 
@@ -30,6 +32,7 @@ def test_fixed_command_map_has_no_request_controlled_package_names():
         "status": ["sudo", "/usr/bin/openscan-updater", "status", "--json"],
         "check": ["sudo", "/usr/bin/openscan-updater", "check", "--dry-run", "--json"],
         "update_openscan": ["sudo", "/usr/bin/openscan-updater", "update-openscan", "--json"],
+        "repair_openscan3": ["sudo", "/usr/bin/openscan-updater", "repair-openscan3", "--json"],
         "healthcheck": ["sudo", "/usr/bin/openscan-updater", "healthcheck", "--json"],
     }
     assert all("apt" not in argv for command in system_update.UPDATER_COMMANDS.values() for argv in command)
@@ -222,3 +225,83 @@ def test_healthcheck_calls_updater_command(monkeypatch, update_client):
     assert response.status_code == 200
     assert response.json()["result"] == {"ok": True, "checks": []}
     assert calls == [system_update.UPDATER_COMMANDS["healthcheck"]]
+
+
+def test_repair_endpoint_calls_fixed_command(monkeypatch, update_client):
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return _completed(argv, '{"ok": true, "command": "repair-openscan3", "steps": []}')
+
+    monkeypatch.setattr(system_update, "is_scan_active", lambda: False)
+    monkeypatch.setattr(system_update.subprocess, "run", fake_run)
+
+    response = update_client.post("/latest/system/repair/openscan3")
+
+    assert response.status_code == 200
+    assert response.json()["result"]["command"] == "repair-openscan3"
+    assert calls[0][0] == system_update.UPDATER_COMMANDS["repair_openscan3"]
+    assert calls[0][1]["shell"] is False
+
+
+def test_repair_command_failure_returns_parsed_json(monkeypatch, update_client):
+    def fake_run(argv, **kwargs):
+        return _completed(
+            argv,
+            '{"ok": false, "error": {"type": "camera_manifest_missing"}}',
+            returncode=1,
+        )
+
+    monkeypatch.setattr(system_update, "is_scan_active", lambda: False)
+    monkeypatch.setattr(system_update.subprocess, "run", fake_run)
+
+    response = update_client.post("/latest/system/repair/openscan3")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is False
+    assert payload["result"]["error"]["type"] == "camera_manifest_missing"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_repair_attempts_are_rejected(monkeypatch):
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def fake_run(command: str):
+        started.set()
+        await release.wait()
+        return 200, {"ok": True, "command": command, "result": {}}
+
+    monkeypatch.setattr(system_update, "is_scan_active", lambda: False)
+    monkeypatch.setattr(system_update, "run_updater_command", fake_run)
+
+    first = asyncio.create_task(system_update.run_repair_openscan3())
+    await started.wait()
+    second_status, second_payload = await system_update.run_repair_openscan3()
+    release.set()
+    first_status, _ = await first
+
+    assert first_status == 200
+    assert second_status == 409
+    assert second_payload["error"]["type"] == "update_active"
+
+
+def test_active_scan_guard_blocks_repair(monkeypatch, update_client):
+    monkeypatch.setattr(system_update, "is_scan_active", lambda: True)
+
+    response = update_client.post("/latest/system/repair/openscan3")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["type"] == "scan_active"
+
+
+def test_repair_endpoint_not_exposed_by_update_router_alone():
+    app = FastAPI()
+    app.include_router(router, prefix="/latest")
+
+    with TestClient(app) as client:
+        response = client.post("/latest/system/repair/openscan3")
+
+    assert response.status_code == 404

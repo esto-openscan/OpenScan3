@@ -157,8 +157,8 @@ current pi-gen image may already provide these; this first milestone does not
 model those runtime system dependencies completely.
 
 Older release pruning is intentionally not implemented yet. Keeping only the
-current and previous releases should wait until updater rollback semantics are
-defined.
+current and previous releases should wait until release-retention policy is
+defined independently from repair.
 
 Legacy pi-gen paths are not removed:
 

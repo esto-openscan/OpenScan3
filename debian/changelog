@@ -1,3 +1,11 @@
+openscan3-firmware (0.11.8) unstable; urgency=medium
+
+  * Add versioned system repair endpoint for repair-openscan3.
+  * Run the repair command through the fixed sudo updater argv map.
+  * Share update/repair locking and active-scan conflict handling.
+
+ -- OpenScan3 Contributors <info@openscan.eu>  Wed, 01 Jul 2026 15:40:00 +0200
+
 openscan3-firmware (0.11.7) unstable; urgency=medium
 
   * Wire updater healthcheck command into the fixed system update API map.

@@ -18,6 +18,7 @@ UPDATER_TIMEOUT_SECONDS: Final = {
     "status": 30,
     "check": 90,
     "update_openscan": 900,
+    "repair_openscan3": 1200,
     "healthcheck": 60,
 }
 MAX_ERROR_TEXT_CHARS: Final = 4096
@@ -33,6 +34,7 @@ UPDATER_COMMANDS: Final[dict[str, list[str]]] = {
     "status": ["sudo", "/usr/bin/openscan-updater", "status", "--json"],
     "check": ["sudo", "/usr/bin/openscan-updater", "check", "--dry-run", "--json"],
     "update_openscan": ["sudo", "/usr/bin/openscan-updater", "update-openscan", "--json"],
+    "repair_openscan3": ["sudo", "/usr/bin/openscan-updater", "repair-openscan3", "--json"],
     "healthcheck": ["sudo", "/usr/bin/openscan-updater", "healthcheck", "--json"],
 }
 
@@ -135,7 +137,7 @@ async def run_updater_command(command: str) -> tuple[int, dict[str, Any]]:
             "returncode": completed.returncode,
             "stderr": _truncate_text(stderr),
         }
-        if command == "update_openscan" and result is not None:
+        if command in {"update_openscan", "repair_openscan3"} and result is not None:
             return 200, payload
         return 500, payload
 
@@ -160,6 +162,28 @@ async def run_update_openscan() -> tuple[int, dict[str, Any]]:
     await _update_lock.acquire()
     try:
         return await run_updater_command("update_openscan")
+    finally:
+        _update_lock.release()
+
+
+async def run_repair_openscan3() -> tuple[int, dict[str, Any]]:
+    """Run the OpenScan3 repair command under the shared update/repair lock."""
+    if _update_lock.locked():
+        return 409, _error_response(
+            "repair_openscan3",
+            "update_active",
+            "Another update or repair command is already running.",
+        )
+
+    if is_scan_active():
+        raise UpdateConflictError(
+            "scan_active",
+            "Repair cannot be started while a scan is running.",
+        )
+
+    await _update_lock.acquire()
+    try:
+        return await run_updater_command("repair_openscan3")
     finally:
         _update_lock.release()
 
