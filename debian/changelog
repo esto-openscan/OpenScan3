@@ -1,3 +1,9 @@
+openscan3-firmware (0.11.7) unstable; urgency=medium
+
+  * Wire updater healthcheck command into the fixed system update API map.
+
+ -- OpenScan3 Contributors <info@openscan.eu>  Wed, 01 Jul 2026 13:35:00 +0200
+
 openscan3-firmware (0.11.6) unstable; urgency=medium
 
   * Move nginx site ownership out to openscan3-system-config.

@@ -18,6 +18,7 @@ UPDATER_TIMEOUT_SECONDS: Final = {
     "status": 30,
     "check": 90,
     "update_openscan": 900,
+    "healthcheck": 60,
 }
 MAX_ERROR_TEXT_CHARS: Final = 4096
 MAX_LOG_LINES: Final = 200
@@ -32,6 +33,7 @@ UPDATER_COMMANDS: Final[dict[str, list[str]]] = {
     "status": ["sudo", "/usr/bin/openscan-updater", "status", "--json"],
     "check": ["sudo", "/usr/bin/openscan-updater", "check", "--dry-run", "--json"],
     "update_openscan": ["sudo", "/usr/bin/openscan-updater", "update-openscan", "--json"],
+    "healthcheck": ["sudo", "/usr/bin/openscan-updater", "healthcheck", "--json"],
 }
 
 UPDATER_LOG_FILES: Final[tuple[Path, ...]] = (

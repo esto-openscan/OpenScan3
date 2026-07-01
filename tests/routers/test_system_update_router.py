@@ -30,6 +30,7 @@ def test_fixed_command_map_has_no_request_controlled_package_names():
         "status": ["sudo", "/usr/bin/openscan-updater", "status", "--json"],
         "check": ["sudo", "/usr/bin/openscan-updater", "check", "--dry-run", "--json"],
         "update_openscan": ["sudo", "/usr/bin/openscan-updater", "update-openscan", "--json"],
+        "healthcheck": ["sudo", "/usr/bin/openscan-updater", "healthcheck", "--json"],
     }
     assert all("apt" not in argv for command in system_update.UPDATER_COMMANDS.values() for argv in command)
 
@@ -207,8 +208,17 @@ def test_logs_endpoint_limits_output_size(monkeypatch, tmp_path: Path, update_cl
     assert result["lines"][-1] == "line-299"
 
 
-def test_healthcheck_returns_501_until_updater_command_exists(update_client):
+def test_healthcheck_calls_updater_command(monkeypatch, update_client):
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return _completed(argv, '{"ok": true, "checks": []}')
+
+    monkeypatch.setattr(system_update.subprocess, "run", fake_run)
+
     response = update_client.post("/latest/system/update/healthcheck")
 
-    assert response.status_code == 501
-    assert response.json()["error"]["type"] == "command_not_implemented"
+    assert response.status_code == 200
+    assert response.json()["result"] == {"ok": True, "checks": []}
+    assert calls == [system_update.UPDATER_COMMANDS["healthcheck"]]
