@@ -7,8 +7,6 @@ RUNTIME_USER="openscan"
 RUNTIME_GROUP="openscan"
 RELEASES_DIR="/opt/openscan3/releases"
 CURRENT_LINK="/opt/openscan3/current"
-NGINX_SITE_AVAILABLE="/etc/nginx/sites-available/openscan3.conf"
-NGINX_SITE_ENABLED="/etc/nginx/sites-enabled/default"
 SERVICE_STATE_DIR="/run/openscan3-firmware"
 SERVICE_WAS_ACTIVE_FILE="$SERVICE_STATE_DIR/openscan3.service-was-active"
 
@@ -96,27 +94,6 @@ reload_and_restart_service() {
     fi
 }
 
-configure_nginx_site() {
-    install -d -o root -g root -m 0755 /etc/nginx/sites-enabled
-    ln -sfn "$NGINX_SITE_AVAILABLE" "$NGINX_SITE_ENABLED"
-
-    if command -v nginx >/dev/null 2>&1; then
-        nginx -t
-    fi
-}
-
-reload_or_restart_nginx() {
-    if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-        systemctl reload nginx.service >/dev/null 2>&1 \
-            || systemctl restart nginx.service >/dev/null 2>&1 \
-            || true
-    elif command -v service >/dev/null 2>&1; then
-        service nginx reload >/dev/null 2>&1 \
-            || service nginx restart >/dev/null 2>&1 \
-            || true
-    fi
-}
-
 case "$1" in
     configure)
         version="$(package_version)"
@@ -132,8 +109,6 @@ case "$1" in
 
         install_release_venv "$version"
         update_current_link "$version"
-        configure_nginx_site
-        reload_or_restart_nginx
         # TODO: Prune older release directories after updater rollback semantics are defined.
         reload_and_restart_service
         ;;

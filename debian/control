@@ -16,10 +16,11 @@ Architecture: any
 Depends:
  ${misc:Depends},
  adduser,
- nginx,
  python3,
  python3-pip,
  python3-venv
+Recommends:
+ openscan3-system-config
 Description: OpenScan3 firmware runtime
  FastAPI-based firmware runtime for OpenScan3 Raspberry Pi photogrammetry
  scanners. The Debian package installs a bundled Python wheelhouse and creates

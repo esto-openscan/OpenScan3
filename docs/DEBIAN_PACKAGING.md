@@ -110,15 +110,33 @@ is:
 `systemctl try-restart openscan3.service` so development installs do not
 unexpectedly start the service.
 
+## Package Responsibilities
+
+```text
+openscan3-firmware = backend application code and openscan3.service
+openscan3-client = SPA assets under /usr/share/openscan3-client/
+openscan3-updater = /usr/bin/openscan-updater and updater Python code
+openscan3-camera-stack = tested camera stack marker provided by variant packages
+openscan3-system-config = nginx, APT source/key, policy, sudoers, tmpfiles, logrotate
+```
+
+`openscan3-firmware` owns the mechanical runtime installation: release
+directory, bundled wheelhouse, virtual environment, runtime directories, current
+symlink, and systemd unit. It does not own nginx configuration.
+
+`openscan3-system-config` owns the appliance integration layer that used to live
+in pi-gen or temporarily in this firmware package. It installs the nginx site,
+OpenScan APT public key/source, update policy defaults, sudoers bridge,
+tmpfiles directories, and logrotate defaults. It intentionally does not ship
+PHP, `/admin` updater routes, firmware backend code, webclient assets, updater
+implementation code, or camera-stack artifacts.
+
 ## pi-gen, openscan3-firmware.deb, And openscan3-updater
 
-The Debian package owns the mechanical runtime installation: release directory,
-bundled wheelhouse, virtual environment, runtime directories, current symlink,
-and systemd unit.
-
-The pi-gen image should eventually install `openscan3-firmware.deb` instead of
-manually creating the runtime from source, but pi-gen is not changed in this
-milestone.
+The pi-gen image installs the signed APT packages for the OpenScan runtime and
+system integration. It keeps a bootstrap copy of the public OpenScan APT key and
+source file only so it can install `openscan3-system-config`; after installation,
+those paths are package-owned by `openscan3-system-config`.
 
 `openscan3-updater` is not implemented here. It should later decide if and when
 an upgrade is installed. The updater must not mutate the active virtual

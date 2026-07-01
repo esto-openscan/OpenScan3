@@ -1,2 +1,1 @@
 debian/openscan3.service lib/systemd/system/
-debian/openscan3.conf etc/nginx/sites-available/

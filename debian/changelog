@@ -1,3 +1,10 @@
+openscan3-firmware (0.11.6) unstable; urgency=medium
+
+  * Move nginx site ownership out to openscan3-system-config.
+  * Drop firmware package nginx dependency and nginx reload handling.
+
+ -- OpenScan3 Contributors <info@openscan.eu>  Wed, 01 Jul 2026 12:10:00 +0200
+
 openscan3-firmware (0.11.5) unstable; urgency=medium
 
   * Fix service shutdown lifecycle for packaged runtime.
