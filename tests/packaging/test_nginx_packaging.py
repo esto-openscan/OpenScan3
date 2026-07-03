@@ -1,4 +1,5 @@
 from pathlib import Path
+import tomllib
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -62,6 +63,34 @@ def test_packaged_service_uses_current_release_without_reload_supervisor() -> No
     )
     assert "--reload-trigger" not in service
     assert "/opt/openscan3/venv" not in service
+
+
+def test_debian_package_bundles_default_settings_without_runtime_device_config() -> None:
+    rules = (ROOT / "debian" / "rules").read_text()
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    packaged_device_settings = pyproject["tool"]["setuptools"]["data-files"][
+        "openscan_firmware/settings/device"
+    ]
+
+    assert "$(RELEASE_DIR)/default-settings/device" in rules
+    assert "settings/device/default_*.json" in rules
+    assert "settings/device/example_custom.json" in rules
+    assert "settings/firmware/*.json" in rules
+    assert "settings/logging/*.json" in rules
+    assert "settings/device/device_config.json" not in rules
+    assert "settings/device/device_config.json" not in packaged_device_settings
+
+
+def test_postinst_seeds_default_settings_without_overwriting_runtime_files() -> None:
+    postinst = (ROOT / "debian" / "postinst").read_text()
+
+    assert "seed_default_settings \"$version\"" in postinst
+    assert "default-settings" in postinst
+    assert "create_runtime_dir /etc/openscan3/device" in postinst
+    assert "create_runtime_dir /etc/openscan3/firmware" in postinst
+    assert "create_runtime_dir /etc/openscan3/logging" in postinst
+    assert "if [ -e \"$target_file\" ]; then" in postinst
+    assert "install -o \"$RUNTIME_USER\" -g \"$RUNTIME_GROUP\" -m 0664" in postinst
 
 
 def test_pwm_hardware_does_not_override_process_signal_handlers() -> None:

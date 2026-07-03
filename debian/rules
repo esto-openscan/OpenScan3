@@ -20,6 +20,13 @@ override_dh_auto_build:
 override_dh_auto_install:
 	mkdir -p $(RELEASE_DIR)/wheels
 	cp -a $(WHEELHOUSE)/*.whl $(RELEASE_DIR)/wheels/
+	mkdir -p $(RELEASE_DIR)/default-settings/device
+	mkdir -p $(RELEASE_DIR)/default-settings/firmware
+	mkdir -p $(RELEASE_DIR)/default-settings/logging
+	cp -a settings/device/default_*.json $(RELEASE_DIR)/default-settings/device/
+	cp -a settings/device/example_custom.json $(RELEASE_DIR)/default-settings/device/
+	cp -a settings/firmware/*.json $(RELEASE_DIR)/default-settings/firmware/
+	cp -a settings/logging/*.json $(RELEASE_DIR)/default-settings/logging/
 
 override_dh_installsystemd:
 	dh_installsystemd --no-enable --no-start

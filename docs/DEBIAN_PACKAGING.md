@@ -66,12 +66,24 @@ These directories are created as `openscan:openscan` with mode `2775`. If
 package creates the `openscan` system user and group when they do not already
 exist.
 
+During `postinst`, bundled default settings are copied from the release
+directory into `/etc/openscan3/{device,firmware,logging}` only when the target
+file does not already exist. The mutable active device configuration
+`device_config.json` is intentionally not shipped as a default preset; the
+firmware creates or updates it as runtime state.
+
 ## Wheelhouse And Venv Installation
 
 The generated `.deb` contains all wheels under:
 
 ```text
 /opt/openscan3/releases/<version>/wheels/
+```
+
+It also contains package defaults under:
+
+```text
+/opt/openscan3/releases/<version>/default-settings/
 ```
 
 During `postinst`, the package creates a fresh virtual environment with:

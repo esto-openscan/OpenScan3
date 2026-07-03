@@ -1,3 +1,10 @@
+openscan3-firmware (0.11.9) unstable; urgency=medium
+
+  * Seed bundled default settings into /etc/openscan3 during package install.
+  * Keep runtime device_config.json out of packaged defaults.
+
+ -- OpenScan3 Contributors <info@openscan.eu>  Fri, 03 Jul 2026 10:50:00 +0200
+
 openscan3-firmware (0.11.8) unstable; urgency=medium
 
   * Add versioned system repair endpoint for repair-openscan3.

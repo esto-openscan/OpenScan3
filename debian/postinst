@@ -48,6 +48,45 @@ create_runtime_dir() {
     set_default_acl_if_available "$dir"
 }
 
+seed_settings_file() {
+    source_file="$1"
+    target_file="$2"
+
+    if [ ! -f "$source_file" ]; then
+        return 0
+    fi
+
+    if [ -e "$target_file" ]; then
+        return 0
+    fi
+
+    install -o "$RUNTIME_USER" -g "$RUNTIME_GROUP" -m 0664 "$source_file" "$target_file"
+}
+
+seed_default_settings() {
+    version="$1"
+    defaults_dir="$RELEASES_DIR/$version/default-settings"
+
+    if [ ! -d "$defaults_dir" ]; then
+        echo "Missing bundled default settings: $defaults_dir" >&2
+        return 0
+    fi
+
+    create_runtime_dir /etc/openscan3/device
+    create_runtime_dir /etc/openscan3/firmware
+    create_runtime_dir /etc/openscan3/logging
+
+    for source_file in "$defaults_dir"/device/*.json; do
+        seed_settings_file "$source_file" "/etc/openscan3/device/$(basename "$source_file")"
+    done
+    for source_file in "$defaults_dir"/firmware/*.json; do
+        seed_settings_file "$source_file" "/etc/openscan3/firmware/$(basename "$source_file")"
+    done
+    for source_file in "$defaults_dir"/logging/*.json; do
+        seed_settings_file "$source_file" "/etc/openscan3/logging/$(basename "$source_file")"
+    done
+}
+
 install_release_venv() {
     version="$1"
     release_dir="$RELEASES_DIR/$version"
@@ -107,6 +146,7 @@ case "$1" in
         create_runtime_dir /var/openscan3/community-tasks
         create_runtime_dir /var/log/openscan3
 
+        seed_default_settings "$version"
         install_release_venv "$version"
         update_current_link "$version"
         # TODO: Prune older release directories after release-retention policy is defined.
