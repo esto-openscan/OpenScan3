@@ -121,12 +121,17 @@ update_current_link() {
 }
 
 reload_and_restart_service() {
+    previous_version="${1:-}"
+
     if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
         systemctl daemon-reload
+        systemctl enable openscan3.service >/dev/null 2>&1 || true
 
         if [ -f "$SERVICE_WAS_ACTIVE_FILE" ]; then
             systemctl restart openscan3.service
             rm -f "$SERVICE_WAS_ACTIVE_FILE"
+        elif [ -z "$previous_version" ]; then
+            systemctl start openscan3.service || true
         else
             systemctl try-restart openscan3.service || true
         fi
@@ -150,7 +155,7 @@ case "$1" in
         install_release_venv "$version"
         update_current_link "$version"
         # TODO: Prune older release directories after release-retention policy is defined.
-        reload_and_restart_service
+        reload_and_restart_service "${2:-}"
         ;;
 esac
 

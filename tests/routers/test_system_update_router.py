@@ -31,7 +31,10 @@ def test_fixed_command_map_has_no_request_controlled_package_names():
     assert system_update.UPDATER_COMMANDS == {
         "status": ["sudo", "/usr/bin/openscan-updater", "status", "--json"],
         "check": ["sudo", "/usr/bin/openscan-updater", "check", "--dry-run", "--json"],
+        "check_openscan": ["sudo", "/usr/bin/openscan-updater", "check", "--dry-run", "--json"],
+        "check_system": ["sudo", "/usr/bin/openscan-updater", "check-system-updates", "--json"],
         "update_openscan": ["sudo", "/usr/bin/openscan-updater", "update-openscan", "--json"],
+        "update_system": ["sudo", "/usr/bin/openscan-updater", "update-system", "--json"],
         "repair_openscan3": ["sudo", "/usr/bin/openscan-updater", "repair-openscan3", "--json"],
         "healthcheck": ["sudo", "/usr/bin/openscan-updater", "healthcheck", "--json"],
     }
@@ -61,15 +64,22 @@ def test_check_endpoint_returns_parsed_updater_json(monkeypatch, update_client):
 
     def fake_run(argv, **kwargs):
         calls.append(argv)
-        return _completed(argv, '{"classification": "openscan_only"}')
+        if argv == system_update.UPDATER_COMMANDS["check_openscan"]:
+            return _completed(argv, '{"classification": "openscan_only"}')
+        return _completed(argv, '{"classification": "allowed_userland"}')
 
     monkeypatch.setattr(system_update.subprocess, "run", fake_run)
 
     response = update_client.post("/latest/system/update/check", json={"ignored": "input"})
 
     assert response.status_code == 200
-    assert response.json()["result"] == {"classification": "openscan_only"}
-    assert calls == [system_update.UPDATER_COMMANDS["check"]]
+    result = response.json()["result"]
+    assert result["stages"]["openscan"]["payload"]["result"] == {"classification": "openscan_only"}
+    assert result["stages"]["system"]["payload"]["result"] == {"classification": "allowed_userland"}
+    assert calls == [
+        system_update.UPDATER_COMMANDS["check_openscan"],
+        system_update.UPDATER_COMMANDS["check_system"],
+    ]
 
 
 def test_update_openscan_endpoint_calls_correct_command(monkeypatch, update_client):
@@ -123,11 +133,15 @@ def test_nonzero_exit_returns_structured_error(monkeypatch, update_client):
 
     response = update_client.post("/latest/system/update/check")
 
-    assert response.status_code == 500
+    assert response.status_code == 200
     payload = response.json()
     assert payload["ok"] is False
-    assert payload["error"]["type"] == "command_failed"
-    assert payload["error"]["returncode"] == 1
+    openscan_error = payload["result"]["stages"]["openscan"]["payload"]["error"]
+    system_error = payload["result"]["stages"]["system"]["payload"]["error"]
+    assert openscan_error["type"] == "command_failed"
+    assert openscan_error["returncode"] == 1
+    assert system_error["type"] == "command_failed"
+    assert system_error["returncode"] == 1
 
 
 def test_update_blocked_result_is_not_backend_crash(monkeypatch, update_client):
@@ -177,6 +191,64 @@ def test_active_scan_guard_blocks_update(monkeypatch, update_client):
     monkeypatch.setattr(system_update, "is_scan_active", lambda: True)
 
     response = update_client.post("/latest/system/update/openscan")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["type"] == "scan_active"
+
+
+def test_apply_endpoint_runs_openscan_then_system_check_then_system_update(
+    monkeypatch,
+    update_client,
+):
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        if argv == system_update.UPDATER_COMMANDS["update_openscan"]:
+            return _completed(argv, '{"ok": true, "updated": ["openscan3-updater"]}')
+        if argv == system_update.UPDATER_COMMANDS["check_system"]:
+            return _completed(argv, '{"ok": true, "classification": "allowed_userland"}')
+        return _completed(argv, '{"ok": true, "updated": ["rpi-swap"]}')
+
+    monkeypatch.setattr(system_update, "is_scan_active", lambda: False)
+    monkeypatch.setattr(system_update.subprocess, "run", fake_run)
+
+    response = update_client.post("/latest/system/update/apply")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert list(payload["result"]["stages"]) == ["openscan", "system_check", "system"]
+    assert calls == [
+        system_update.UPDATER_COMMANDS["update_openscan"],
+        system_update.UPDATER_COMMANDS["check_system"],
+        system_update.UPDATER_COMMANDS["update_system"],
+    ]
+
+
+def test_apply_endpoint_stops_before_system_when_openscan_fails(monkeypatch, update_client):
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return _completed(argv, '{"ok": false, "classification": "blocked"}', returncode=2)
+
+    monkeypatch.setattr(system_update, "is_scan_active", lambda: False)
+    monkeypatch.setattr(system_update.subprocess, "run", fake_run)
+
+    response = update_client.post("/latest/system/update/apply")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is False
+    assert list(payload["result"]["stages"]) == ["openscan"]
+    assert calls == [system_update.UPDATER_COMMANDS["update_openscan"]]
+
+
+def test_apply_endpoint_blocks_when_scan_active(monkeypatch, update_client):
+    monkeypatch.setattr(system_update, "is_scan_active", lambda: True)
+
+    response = update_client.post("/latest/system/update/apply")
 
     assert response.status_code == 409
     assert response.json()["error"]["type"] == "scan_active"

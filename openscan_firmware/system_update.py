@@ -17,7 +17,10 @@ BACKEND_API_VERSION: Final = "1"
 UPDATER_TIMEOUT_SECONDS: Final = {
     "status": 30,
     "check": 90,
+    "check_openscan": 90,
+    "check_system": 180,
     "update_openscan": 900,
+    "update_system": 1800,
     "repair_openscan3": 1200,
     "healthcheck": 60,
 }
@@ -33,7 +36,10 @@ UPDATER_ENV: Final = {
 UPDATER_COMMANDS: Final[dict[str, list[str]]] = {
     "status": ["sudo", "/usr/bin/openscan-updater", "status", "--json"],
     "check": ["sudo", "/usr/bin/openscan-updater", "check", "--dry-run", "--json"],
+    "check_openscan": ["sudo", "/usr/bin/openscan-updater", "check", "--dry-run", "--json"],
+    "check_system": ["sudo", "/usr/bin/openscan-updater", "check-system-updates", "--json"],
     "update_openscan": ["sudo", "/usr/bin/openscan-updater", "update-openscan", "--json"],
+    "update_system": ["sudo", "/usr/bin/openscan-updater", "update-system", "--json"],
     "repair_openscan3": ["sudo", "/usr/bin/openscan-updater", "repair-openscan3", "--json"],
     "healthcheck": ["sudo", "/usr/bin/openscan-updater", "healthcheck", "--json"],
 }
@@ -137,11 +143,37 @@ async def run_updater_command(command: str) -> tuple[int, dict[str, Any]]:
             "returncode": completed.returncode,
             "stderr": _truncate_text(stderr),
         }
-        if command in {"update_openscan", "repair_openscan3"} and result is not None:
+        nonzero_json_results = {
+            "check_openscan",
+            "check_system",
+            "update_openscan",
+            "update_system",
+            "repair_openscan3",
+        }
+        if command in nonzero_json_results and result is not None:
             return 200, payload
         return 500, payload
 
     return 200, _result_response(command, result, ok=True)
+
+
+async def run_update_check() -> tuple[int, dict[str, Any]]:
+    """Return a combined OpenScan and system update plan for the UI."""
+    openscan = await _run_update_stage("openscan", "check_openscan")
+    system = await _run_update_stage("system", "check_system")
+    ok = _stage_ok(openscan) and _stage_ok(system)
+
+    return 200, _result_response(
+        "update_check",
+        {
+            "summary": _combined_summary(openscan, system),
+            "stages": {
+                "openscan": openscan,
+                "system": system,
+            },
+        },
+        ok=ok,
+    )
 
 
 async def run_update_openscan() -> tuple[int, dict[str, Any]]:
@@ -162,6 +194,66 @@ async def run_update_openscan() -> tuple[int, dict[str, Any]]:
     await _update_lock.acquire()
     try:
         return await run_updater_command("update_openscan")
+    finally:
+        _update_lock.release()
+
+
+async def run_update_apply() -> tuple[int, dict[str, Any]]:
+    """Run the user-facing update flow: OpenScan first, then system updates."""
+    if _update_lock.locked():
+        return 409, _error_response(
+            "update_apply",
+            "update_active",
+            "Another update command is already running.",
+        )
+
+    if is_scan_active():
+        raise UpdateConflictError(
+            "scan_active",
+            "Updates cannot be started while a scan is running.",
+        )
+
+    await _update_lock.acquire()
+    try:
+        openscan = await _run_update_stage("openscan", "update_openscan")
+        stages: dict[str, Any] = {"openscan": openscan}
+        if not _stage_ok(openscan):
+            return 200, _result_response(
+                "update_apply",
+                {
+                    "summary": "OpenScan update did not complete; system update was not started.",
+                    "stages": stages,
+                },
+                ok=False,
+            )
+
+        system_check = await _run_update_stage("system_check", "check_system")
+        stages["system_check"] = system_check
+        if not _stage_ok(system_check):
+            return 200, _result_response(
+                "update_apply",
+                {
+                    "summary": (
+                        "System update check did not complete; "
+                        "system update was not started."
+                    ),
+                    "stages": stages,
+                },
+                ok=False,
+            )
+
+        system = await _run_update_stage("system", "update_system")
+        stages["system"] = system
+        ok = _stage_ok(system)
+
+        return 200, _result_response(
+            "update_apply",
+            {
+                "summary": _apply_summary(ok),
+                "stages": stages,
+            },
+            ok=ok,
+        )
     finally:
         _update_lock.release()
 
@@ -197,6 +289,49 @@ def is_scan_active() -> bool:
         return False
 
     return any(task.task_type == "scan_task" and task.status in active_statuses for task in tasks)
+
+
+async def _run_update_stage(stage: str, command: str) -> dict[str, Any]:
+    status_code, payload = await run_updater_command(command)
+    result: dict[str, Any] = {
+        "stage": stage,
+        "command": command,
+        "status_code": status_code,
+        "ok": _payload_ok(payload),
+        "payload": payload,
+    }
+    if status_code >= 400:
+        result["ok"] = False
+    return result
+
+
+def _stage_ok(stage: dict[str, Any]) -> bool:
+    return bool(stage.get("ok")) and int(stage.get("status_code", 500)) < 400
+
+
+def _payload_ok(payload: dict[str, Any]) -> bool:
+    if payload.get("ok") is False:
+        return False
+    result = payload.get("result")
+    if isinstance(result, dict) and result.get("ok") is False:
+        return False
+    return True
+
+
+def _combined_summary(openscan: dict[str, Any], system: dict[str, Any]) -> str:
+    if _stage_ok(openscan) and _stage_ok(system):
+        return "OpenScan and system update checks completed."
+    if not _stage_ok(openscan) and not _stage_ok(system):
+        return "OpenScan and system update checks did not complete."
+    if not _stage_ok(openscan):
+        return "OpenScan update check did not complete."
+    return "System update check did not complete."
+
+
+def _apply_summary(ok: bool) -> str:
+    if ok:
+        return "OpenScan update and system update completed."
+    return "System update did not complete."
 
 
 def read_updater_logs(tail: int = MAX_LOG_LINES) -> tuple[int, dict[str, Any]]:

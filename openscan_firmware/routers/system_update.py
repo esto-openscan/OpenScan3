@@ -8,6 +8,8 @@ from fastapi.responses import JSONResponse
 from openscan_firmware.system_update import (
     UpdateConflictError,
     read_updater_logs,
+    run_update_apply,
+    run_update_check,
     run_update_openscan,
     run_updater_command,
 )
@@ -31,7 +33,21 @@ async def get_update_status() -> JSONResponse:
 
 @router.post("/check")
 async def check_for_updates() -> JSONResponse:
-    status_code, payload = await run_updater_command("check")
+    status_code, payload = await run_update_check()
+    return _json(status_code, payload)
+
+
+@router.post("/apply")
+async def apply_updates() -> JSONResponse:
+    try:
+        status_code, payload = await run_update_apply()
+    except UpdateConflictError as exc:
+        payload = {
+            "ok": False,
+            "command": "update_apply",
+            "error": {"type": exc.error_type, "message": exc.message},
+        }
+        status_code = 409
     return _json(status_code, payload)
 
 

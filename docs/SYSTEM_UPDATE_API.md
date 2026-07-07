@@ -24,11 +24,23 @@ for example `/api/latest/system/repair/openscan3`.
 | Method | Path | Backend action |
 | --- | --- | --- |
 | `GET` | `/system/update/status` | Runs `sudo /usr/bin/openscan-updater status --json` |
-| `POST` | `/system/update/check` | Runs `sudo /usr/bin/openscan-updater check --dry-run --json` |
+| `POST` | `/system/update/check` | Runs the combined update check: OpenScan dry-run, then system update check |
+| `POST` | `/system/update/apply` | Runs the user-facing update flow: OpenScan update first, then system update check and system update |
 | `POST` | `/system/update/openscan` | Runs `sudo /usr/bin/openscan-updater update-openscan --json` |
 | `POST` | `/system/update/healthcheck` | Runs `sudo /usr/bin/openscan-updater healthcheck --json` |
 | `GET` | `/system/update/logs` | Returns the last 200 lines from fixed updater log files |
 | `POST` | `/system/repair/openscan3` | Runs `sudo /usr/bin/openscan-updater repair-openscan3 --json` |
+
+The user-facing update button should use `/system/update/check` for planning
+and `/system/update/apply` for execution. The apply flow deliberately keeps the
+internal stages separate: it updates OpenScan packages first, then starts a new
+system update check through the updater CLI, and only then runs the system
+update command. This lets newly installed updater policy, package protections,
+and camera-stack pinning take effect before non-OpenScan packages are changed.
+
+`/system/update/openscan` remains available as a narrower OpenScan-only action
+for recovery and compatibility. It does not apply Raspberry Pi OS or other
+system package updates.
 
 OpenScan3 v1 does not expose full system rollback, Debian package rollback,
 kernel/firmware rollback, arbitrary package downgrades, package-name request
@@ -48,16 +60,18 @@ the manifest, reapply protections, restart services, and run healthcheck.
 - The logs endpoint reads only known updater log paths and returns a bounded tail.
 - The updater remains responsible for APT safety classification and package
   policy decisions.
+- The combined apply endpoint does not merge OpenScan and system policy. It only
+  orchestrates fixed updater commands in order.
 
-`update-openscan` and `repair-openscan3` are protected by a shared process-local
-async lock. A second update or repair request returns `409 Conflict` while one
-command is already running. The updater CLI also uses a shared file lock at
-`/var/lock/openscan-updater.lock`.
+`update-openscan`, combined update apply, and `repair-openscan3` are protected
+by a shared process-local async lock. A second update or repair request returns
+`409 Conflict` while one command is already running. The updater CLI also uses a
+shared file lock at `/var/lock/openscan-updater.lock`.
 
-Before starting `update-openscan` or `repair-openscan3`, the backend checks the
-task manager for active `scan_task` entries in `pending`, `running`, or `paused`
-state. If such a task is found, the endpoint returns `409 Conflict` and does not
-call the updater.
+Before starting `update-openscan`, combined update apply, or
+`repair-openscan3`, the backend checks the task manager for active `scan_task`
+entries in `pending`, `running`, or `paused` state. If such a task is found, the
+endpoint returns `409 Conflict` and does not call the updater.
 
 ## Response Shape
 
@@ -79,5 +93,5 @@ treated as backend crashes.
 
 ## Future Work
 
-System maintenance, security updates, kernel/firmware updates, and recovery UI
-work are intentionally separate future milestones.
+Normal webclient presentation, richer progress reporting, and channel switching
+UI are intentionally separate frontend work.

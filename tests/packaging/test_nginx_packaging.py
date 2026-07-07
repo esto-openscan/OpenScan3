@@ -50,6 +50,8 @@ def test_firmware_service_upgrade_restart_is_stateful() -> None:
     assert "systemctl is-active --quiet openscan3.service" in preinst
     assert "openscan3.service-was-active" in preinst
     assert "#DEBHELPER#" in preinst
+    assert "systemctl enable openscan3.service" in postinst
+    assert "systemctl start openscan3.service || true" in postinst
     assert "systemctl restart openscan3.service" in postinst
     assert "systemctl try-restart openscan3.service || true" in postinst
 

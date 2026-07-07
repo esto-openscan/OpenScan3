@@ -1,3 +1,12 @@
+openscan3-firmware (0.11.10) unstable; urgency=medium
+
+  * Add combined system update check and apply API endpoints for the
+    user-facing update flow.
+  * Run OpenScan package updates before rechecking and applying system updates.
+  * Enable and start openscan3.service on fresh package installation.
+
+ -- OpenScan3 Contributors <info@openscan.eu>  Tue, 07 Jul 2026 00:00:00 +0200
+
 openscan3-firmware (0.11.9) unstable; urgency=medium
 
   * Seed bundled default settings into /etc/openscan3 during package install.
