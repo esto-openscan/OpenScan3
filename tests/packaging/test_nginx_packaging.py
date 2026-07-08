@@ -86,7 +86,11 @@ def test_debian_package_bundles_default_settings_without_runtime_device_config()
 def test_postinst_seeds_default_settings_without_overwriting_runtime_files() -> None:
     postinst = (ROOT / "debian" / "postinst").read_text()
 
-    assert "seed_default_settings \"$version\"" in postinst
+    assert "python_package_version()" in postinst
+    assert "python_version=\"$(python_package_version \"$version\")\"" in postinst
+    assert "seed_default_settings \"$python_version\"" in postinst
+    assert "install_release_venv \"$python_version\"" in postinst
+    assert "update_current_link \"$python_version\"" in postinst
     assert "default-settings" in postinst
     assert "create_runtime_dir /etc/openscan3/device" in postinst
     assert "create_runtime_dir /etc/openscan3/firmware" in postinst
