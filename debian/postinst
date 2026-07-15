@@ -129,7 +129,6 @@ reload_and_restart_service() {
 
     if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
         systemctl daemon-reload
-        systemctl enable openscan3.service >/dev/null 2>&1 || true
 
         if [ -f "$SERVICE_WAS_ACTIVE_FILE" ]; then
             systemctl restart openscan3.service

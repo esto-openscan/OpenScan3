@@ -115,12 +115,16 @@ The service name intentionally remains `openscan3.service`. Its runtime command
 is:
 
 ```sh
-/opt/openscan3/current/venv/bin/openscan-firmware serve --root-path /api --reload-trigger
+/opt/openscan3/current/venv/bin/openscan-firmware serve --root-path /api
 ```
 
-`postinst` runs `systemctl daemon-reload` when systemd is available and uses
-`systemctl try-restart openscan3.service` so development installs do not
-unexpectedly start the service.
+Debhelper enables the unit with `deb-systemd-helper`, which creates the
+necessary enablement links even when pi-gen installs the package in a chroot
+without a running systemd. The service therefore starts automatically on the
+first boot of the image. `postinst` runs `systemctl daemon-reload` when systemd
+is available; it starts a fresh installation only on a live system and uses
+`systemctl try-restart openscan3.service` for upgrades that were not already
+running.
 
 ## Package Responsibilities
 

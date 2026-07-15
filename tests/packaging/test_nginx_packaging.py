@@ -46,11 +46,14 @@ def test_postinst_does_not_manage_nginx_site() -> None:
 def test_firmware_service_upgrade_restart_is_stateful() -> None:
     preinst = (ROOT / "debian" / "preinst").read_text()
     postinst = (ROOT / "debian" / "postinst").read_text()
+    rules = (ROOT / "debian" / "rules").read_text()
 
     assert "systemctl is-active --quiet openscan3.service" in preinst
     assert "openscan3.service-was-active" in preinst
     assert "#DEBHELPER#" in preinst
-    assert "systemctl enable openscan3.service" in postinst
+    assert "dh_installsystemd --no-start" in rules
+    assert "dh_installsystemd --no-enable" not in rules
+    assert "systemctl enable openscan3.service" not in postinst
     assert "systemctl start openscan3.service || true" in postinst
     assert "systemctl restart openscan3.service" in postinst
     assert "systemctl try-restart openscan3.service || true" in postinst
