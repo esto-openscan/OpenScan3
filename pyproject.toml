@@ -67,7 +67,7 @@ where = ["."]
 include = ["openscan_firmware*"]
 
 [tool.setuptools.package-data]
-"openscan_firmware" = ["**/*.json"]
+"openscan_firmware" = ["**/*.json", "utils/camera_report.sh"]
 
 [tool.setuptools.data-files]
 "openscan_firmware/settings/device" = [
