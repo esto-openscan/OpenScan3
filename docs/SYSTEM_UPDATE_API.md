@@ -26,10 +26,10 @@ for example `/api/latest/system/repair/openscan3`.
 | `GET` | `/system/update/status` | Runs `sudo /usr/bin/openscan-updater status --json` |
 | `POST` | `/system/update/check` | Runs the combined update check: OpenScan dry-run, then system update check |
 | `POST` | `/system/update/apply` | Runs the user-facing update flow: OpenScan update first, then system update check and system update |
-| `POST` | `/system/update/openscan` | Runs `sudo /usr/bin/openscan-updater update-openscan --json` |
+| `POST` | `/system/update/openscan` | Runs `sudo /usr/bin/openscan-updater update --json` |
 | `POST` | `/system/update/healthcheck` | Runs `sudo /usr/bin/openscan-updater healthcheck --json` |
 | `GET` | `/system/update/logs` | Returns the last 200 lines from fixed updater log files |
-| `POST` | `/system/repair/openscan3` | Runs `sudo /usr/bin/openscan-updater repair-openscan3 --json` |
+| `POST` | `/system/repair/openscan3` | Runs `sudo /usr/bin/openscan-updater repair --json` |
 
 The user-facing update button should use `/system/update/check` for planning
 and `/system/update/apply` for execution. The apply flow deliberately keeps the
@@ -63,13 +63,13 @@ the manifest, reapply protections, restart services, and run healthcheck.
 - The combined apply endpoint does not merge OpenScan and system policy. It only
   orchestrates fixed updater commands in order.
 
-`update-openscan`, combined update apply, and `repair-openscan3` are protected
+`update`, combined update apply, and `repair` are protected
 by a shared process-local async lock. A second update or repair request returns
 `409 Conflict` while one command is already running. The updater CLI also uses a
 shared file lock at `/var/lock/openscan-updater.lock`.
 
-Before starting `update-openscan`, combined update apply, or
-`repair-openscan3`, the backend checks the task manager for active `scan_task`
+Before starting `update`, combined update apply, or `repair`, the backend checks
+the task manager for active `scan_task`
 entries in `pending`, `running`, or `paused` state. If such a task is found, the
 endpoint returns `409 Conflict` and does not call the updater.
 

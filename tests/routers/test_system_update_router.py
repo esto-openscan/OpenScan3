@@ -30,12 +30,12 @@ def _completed(argv: list[str], stdout: str, stderr: str = "", returncode: int =
 def test_fixed_command_map_has_no_request_controlled_package_names():
     assert system_update.UPDATER_COMMANDS == {
         "status": ["sudo", "/usr/bin/openscan-updater", "status", "--json"],
-        "check": ["sudo", "/usr/bin/openscan-updater", "check", "--dry-run", "--json"],
-        "check_openscan": ["sudo", "/usr/bin/openscan-updater", "check", "--dry-run", "--json"],
-        "check_system": ["sudo", "/usr/bin/openscan-updater", "check-system-updates", "--json"],
-        "update_openscan": ["sudo", "/usr/bin/openscan-updater", "update-openscan", "--json"],
-        "update_system": ["sudo", "/usr/bin/openscan-updater", "update-system", "--json"],
-        "repair_openscan3": ["sudo", "/usr/bin/openscan-updater", "repair-openscan3", "--json"],
+        "check": ["sudo", "/usr/bin/openscan-updater", "update", "--dry-run", "--json"],
+        "check_openscan": ["sudo", "/usr/bin/openscan-updater", "update", "--dry-run", "--json"],
+        "check_system": ["sudo", "/usr/bin/openscan-updater", "system", "check", "--json"],
+        "update_openscan": ["sudo", "/usr/bin/openscan-updater", "update", "--json"],
+        "update_system": ["sudo", "/usr/bin/openscan-updater", "system", "update", "--json"],
+        "repair_openscan3": ["sudo", "/usr/bin/openscan-updater", "repair", "--json"],
         "healthcheck": ["sudo", "/usr/bin/openscan-updater", "healthcheck", "--json"],
     }
     assert all("apt" not in argv for command in system_update.UPDATER_COMMANDS.values() for argv in command)
@@ -304,7 +304,7 @@ def test_repair_endpoint_calls_fixed_command(monkeypatch, update_client):
 
     def fake_run(argv, **kwargs):
         calls.append((argv, kwargs))
-        return _completed(argv, '{"ok": true, "command": "repair-openscan3", "steps": []}')
+        return _completed(argv, '{"ok": true, "command": "repair", "steps": []}')
 
     monkeypatch.setattr(system_update, "is_scan_active", lambda: False)
     monkeypatch.setattr(system_update.subprocess, "run", fake_run)
@@ -312,7 +312,7 @@ def test_repair_endpoint_calls_fixed_command(monkeypatch, update_client):
     response = update_client.post("/latest/system/repair/openscan3")
 
     assert response.status_code == 200
-    assert response.json()["result"]["command"] == "repair-openscan3"
+    assert response.json()["result"]["command"] == "repair"
     assert calls[0][0] == system_update.UPDATER_COMMANDS["repair_openscan3"]
     assert calls[0][1]["shell"] is False
 

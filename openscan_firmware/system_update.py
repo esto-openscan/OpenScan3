@@ -35,12 +35,12 @@ UPDATER_ENV: Final = {
 
 UPDATER_COMMANDS: Final[dict[str, list[str]]] = {
     "status": ["sudo", "/usr/bin/openscan-updater", "status", "--json"],
-    "check": ["sudo", "/usr/bin/openscan-updater", "check", "--dry-run", "--json"],
-    "check_openscan": ["sudo", "/usr/bin/openscan-updater", "check", "--dry-run", "--json"],
-    "check_system": ["sudo", "/usr/bin/openscan-updater", "check-system-updates", "--json"],
-    "update_openscan": ["sudo", "/usr/bin/openscan-updater", "update-openscan", "--json"],
-    "update_system": ["sudo", "/usr/bin/openscan-updater", "update-system", "--json"],
-    "repair_openscan3": ["sudo", "/usr/bin/openscan-updater", "repair-openscan3", "--json"],
+    "check": ["sudo", "/usr/bin/openscan-updater", "update", "--dry-run", "--json"],
+    "check_openscan": ["sudo", "/usr/bin/openscan-updater", "update", "--dry-run", "--json"],
+    "check_system": ["sudo", "/usr/bin/openscan-updater", "system", "check", "--json"],
+    "update_openscan": ["sudo", "/usr/bin/openscan-updater", "update", "--json"],
+    "update_system": ["sudo", "/usr/bin/openscan-updater", "system", "update", "--json"],
+    "repair_openscan3": ["sudo", "/usr/bin/openscan-updater", "repair", "--json"],
     "healthcheck": ["sudo", "/usr/bin/openscan-updater", "healthcheck", "--json"],
 }
 
