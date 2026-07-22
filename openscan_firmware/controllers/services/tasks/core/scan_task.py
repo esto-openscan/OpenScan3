@@ -442,7 +442,7 @@ class ScanTask(BaseTask):
 
             if not self._ctx.focus_context or not self._ctx.focus_context["enabled"]:
                 # Single photo capture
-                photo_data = self._ctx.camera_controller.photo(
+                photo_data = await self._ctx.camera_controller.photo_async(
                     self._ctx.scan.settings.image_format
                 )
                 photo_data.scan_metadata = ScanMetadata(
