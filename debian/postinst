@@ -9,13 +9,38 @@ RELEASES_DIR="/opt/openscan3/releases"
 CURRENT_LINK="/opt/openscan3/current"
 SERVICE_STATE_DIR="/run/openscan3-firmware"
 SERVICE_WAS_ACTIVE_FILE="$SERVICE_STATE_DIR/openscan3.service-was-active"
+RELEASE_METADATA="/usr/share/openscan3-firmware/release.json"
 
 package_version() {
-    dpkg-query -W -f='${Version}' "$DEB_PACKAGE_NAME" | sed 's/-[^-]*$//'
+    dpkg-query -W -f='${Version}' "$DEB_PACKAGE_NAME"
 }
 
-python_package_version() {
-    printf '%s\n' "$1" | sed -E 's/~nightly\.([0-9]{8})\.g([0-9A-Fa-f]+)/.dev\1+g\2/'
+bundled_python_version() {
+    debian_version="$1"
+    python3 - "$RELEASE_METADATA" "$debian_version" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+installed_debian_version = sys.argv[2]
+try:
+    metadata = json.loads(path.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError) as error:
+    raise SystemExit(f"Invalid or missing firmware release metadata {path}: {error}")
+
+if metadata.get("schema") != 1:
+    raise SystemExit(f"Unsupported firmware release metadata schema in {path}")
+if metadata.get("debian_version") != installed_debian_version:
+    raise SystemExit(
+        "Firmware release metadata does not match installed Debian version: "
+        f"{metadata.get('debian_version')!r} != {installed_debian_version!r}"
+    )
+python_version = metadata.get("python_version")
+if not isinstance(python_version, str) or not python_version:
+    raise SystemExit(f"Missing Python version in firmware release metadata {path}")
+print(python_version)
+PY
 }
 
 ensure_runtime_user() {
@@ -144,7 +169,7 @@ reload_and_restart_service() {
 case "$1" in
     configure)
         version="$(package_version)"
-        python_version="$(python_package_version "$version")"
+        python_version="$(bundled_python_version "$version")"
 
         ensure_runtime_user
 
