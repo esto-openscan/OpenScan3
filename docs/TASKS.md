@@ -12,7 +12,7 @@ This document explains how background tasks work in OpenScan3, how they are disc
 ## Directory Structure
 
 - Core (production) tasks: `openscan_firmware/controllers/services/tasks/core/`
-  - `scan_task.py`: Exclusive async task (generator style) responsible for the scan workflow. It keeps one captured position in memory so the previous position can be saved in parallel with the next capture. Saves start only after a motor movement has completed and are awaited before another movement begins.
+  - `scan_task.py`: Exclusive async task (generator style) responsible for the scan workflow.
   - `crop_task.py`: Blocking non-exclusive task for simple crop detection.
 - Example tasks: `openscan_firmware/controllers/services/tasks/examples/`
   - `demo_examples.py`: Contains multiple demo tasks such as `hello_world_progress_task`, `hello_world_blocking_task`, `exclusive_demo_task`, `failing_task`.
