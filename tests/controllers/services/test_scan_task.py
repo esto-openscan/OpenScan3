@@ -180,7 +180,7 @@ class TestScanTask:
         assert final_task_model.progress.total == total_expected_steps
 
         # 3. Check calls
-        assert mock_camera_controller.photo.call_count == total_expected_steps
+        assert mock_camera_controller.photo_async.await_count == total_expected_steps
         assert mock_project_manager.add_photo_async.call_count == total_expected_steps
         # +1 for the final cleanup move
         assert mock_motors.move_to_point.call_count == total_expected_steps + 1
@@ -733,7 +733,7 @@ async def test_capture_skips_photo_when_cancelled_before_capture_delay(sample_sc
 
 
     @pytest.mark.asyncio
-    async def test_single_capture_uses_configured_image_format(
+    async def test_single_capture_uses_async_camera_with_configured_image_format(
         self,
         sample_scan_model: Scan,
         fake_photo_data: PhotoData,
@@ -747,8 +747,8 @@ async def test_capture_skips_photo_when_cancelled_before_capture_delay(sample_sc
         photo_payload.format = "dng"
 
         camera_controller = MagicMock()
-        camera_controller.photo = MagicMock(return_value=photo_payload)
-        camera_controller.photo_async = AsyncMock()
+        camera_controller.photo = MagicMock()
+        camera_controller.photo_async = AsyncMock(return_value=photo_payload)
         camera_controller.settings = MagicMock()
 
         project_manager = MagicMock()
@@ -767,8 +767,8 @@ async def test_capture_skips_photo_when_cancelled_before_capture_delay(sample_sc
         await scan_task._capture_photos_at_position(PolarPoint3D(theta=0, fi=0), 0)
         await asyncio.sleep(0)
 
-        camera_controller.photo.assert_called_once()
-        assert camera_controller.photo.call_args.args == ("dng",)
+        camera_controller.photo.assert_not_called()
+        camera_controller.photo_async.assert_awaited_once_with("dng")
 
 
     @pytest.mark.asyncio
