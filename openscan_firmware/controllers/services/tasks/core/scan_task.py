@@ -22,6 +22,7 @@ from PIL import Image
 from openscan_firmware.config.scan import ScanSetting
 from openscan_firmware.controllers.services.projects import ProjectManager, get_project_manager
 from openscan_firmware.controllers.services.tasks.base_task import BaseTask
+from openscan_firmware.models.camera import PhotoData
 from openscan_firmware.models.paths import PolarPoint3D, PathMethod
 from openscan_firmware.models.scan import Scan, ScanMetadata
 from openscan_firmware.models.task import TaskProgress, TaskStatus
@@ -296,21 +297,30 @@ class ScanTask(BaseTask):
         # Lazy import to avoid hardware side effects on module import
         from openscan_firmware.controllers.hardware import motors
 
+        pending_photos: list[PhotoData] = []
+        pending_step: Optional[int] = None
+        progress_checkpoint = datetime.now()
+
         for current_step, current_point in enumerate(self._ctx.path_dict.keys()):
             original_index = self._ctx.path_dict[current_point]
-            step_start_time = datetime.now()
             self._ctx.scan.status = TaskStatus.RUNNING
 
             # Check for cancellation
             if self.is_cancelled():
+                self._ctx.scan.status = TaskStatus.CANCELLED
+                if pending_photos:
+                    await self._save_photos(pending_photos)
+                    self._ctx.scan.duration += (datetime.now() - progress_checkpoint).total_seconds()
+                    self._ctx.scan.current_step = pending_step
+                    pending_photos = []
+                await self._ctx.project_manager.save_scan_state(self._ctx.scan)
                 logger.info(
                     "Scan %s for project %s was cancelled.",
                     self._ctx.scan.index,
                     self._ctx.scan.project_name,
                 )
-                self._ctx.scan.status = TaskStatus.CANCELLED
                 yield TaskProgress(
-                    current=current_step + start_from_step + 1,
+                    current=self._ctx.scan.current_step or start_from_step,
                     total=total,
                     message="Scan cancelled by request.",
                 )
@@ -319,14 +329,20 @@ class ScanTask(BaseTask):
             # Wait here if the task is paused
             await self.wait_for_pause()
             if self.is_cancelled():
+                self._ctx.scan.status = TaskStatus.CANCELLED
+                if pending_photos:
+                    await self._save_photos(pending_photos)
+                    self._ctx.scan.duration += (datetime.now() - progress_checkpoint).total_seconds()
+                    self._ctx.scan.current_step = pending_step
+                    pending_photos = []
+                await self._ctx.project_manager.save_scan_state(self._ctx.scan)
                 logger.info(
                     "Scan %s for project %s was cancelled while paused.",
                     self._ctx.scan.index,
                     self._ctx.scan.project_name,
                 )
-                self._ctx.scan.status = TaskStatus.CANCELLED
                 yield TaskProgress(
-                    current=current_step + start_from_step + 1,
+                    current=self._ctx.scan.current_step or start_from_step,
                     total=total,
                     message="Scan cancelled by request.",
                 )
@@ -335,41 +351,68 @@ class ScanTask(BaseTask):
             # Move to current position
             await motors.move_to_point(current_point)
 
-            # Capture photos (with or without focus stacking)
+            # The previous position is saved only after this movement has finished.
+            # Its save can overlap the settling delay and capture at the current
+            # position, but is always complete before the next movement starts.
+            save_task = (
+                asyncio.create_task(self._save_photos(pending_photos))
+                if pending_photos
+                else None
+            )
+
             try:
-                await self._capture_photos_at_position(current_point, original_index)
-            except Exception as e:
-                logger.error("Error taking photo at position %s: %s", original_index, e, exc_info=True)
+                captured_photos = await self._capture_photos_at_position(current_point, original_index)
+            except BaseException:
+                if save_task is not None:
+                    await save_task
                 raise
 
+            if save_task is not None:
+                await save_task
+                self._ctx.scan.duration += (datetime.now() - progress_checkpoint).total_seconds()
+                progress_checkpoint = datetime.now()
+                self._ctx.scan.current_step = pending_step
+                await self._ctx.project_manager.save_scan_state(self._ctx.scan)
+
+            saved_step = pending_step
+            pending_photos = captured_photos
+            pending_step = current_step + start_from_step + 1
+
             if self.is_cancelled():
+                self._ctx.scan.status = TaskStatus.CANCELLED
+                if pending_photos:
+                    await self._save_photos(pending_photos)
+                    self._ctx.scan.duration += (datetime.now() - progress_checkpoint).total_seconds()
+                    self._ctx.scan.current_step = pending_step
+                    pending_photos = []
+                await self._ctx.project_manager.save_scan_state(self._ctx.scan)
                 logger.info(
                     "Scan %s for project %s was cancelled during capture.",
                     self._ctx.scan.index,
                     self._ctx.scan.project_name,
                 )
-                self._ctx.scan.status = TaskStatus.CANCELLED
                 yield TaskProgress(
-                    current=current_step + start_from_step + 1,
+                    current=self._ctx.scan.current_step or start_from_step,
                     total=total,
                     message="Scan cancelled by request.",
                 )
                 break
 
-            # Update scan progress
-            self._ctx.scan.duration += (datetime.now() - step_start_time).total_seconds()
-            self._ctx.scan.current_step = current_step + start_from_step + 1
-
-            await self._ctx.project_manager.save_scan_state(self._ctx.scan)
-
-            yield TaskProgress(
-                current=current_step + start_from_step + 1,
-                total=total,
-                message="Scan in progress.",
-            )
+            if save_task is not None:
+                yield TaskProgress(
+                    current=saved_step,
+                    total=total,
+                    message="Scan in progress.",
+                )
         else:
+            if pending_photos:
+                await self._save_photos(pending_photos)
+                self._ctx.scan.duration += (datetime.now() - progress_checkpoint).total_seconds()
+                self._ctx.scan.current_step = pending_step
+
             # Loop completed without break
             self._ctx.scan.status = TaskStatus.COMPLETED
+            await self._ctx.project_manager.save_scan_state(self._ctx.scan)
             logger.info(
                 "Scan %s for project %s completed successfully.",
                 self._ctx.scan.index,
@@ -426,19 +469,25 @@ class ScanTask(BaseTask):
             return image.transpose(Image.Transpose.ROTATE_90)
         return image
 
-    async def _capture_photos_at_position(self, current_point: PolarPoint3D, index: int) -> None:
+    async def _capture_photos_at_position(
+        self,
+        current_point: PolarPoint3D,
+        index: int,
+    ) -> list[PhotoData]:
         """Capture photos at current position with optional focus stacking.
 
         Args:
             current_point: Current scan position.
             index: Index of the current original step in path_dict.
         """
+        captured_photos: list[PhotoData] = []
+
         try:
             logger.debug("Capturing photo at position %s", current_point)
             await self._wait_before_capture()
             if self.is_cancelled():
                 logger.info("Cancellation detected before capture at position %s.", index)
-                return
+                return captured_photos
 
             if not self._ctx.focus_context or not self._ctx.focus_context["enabled"]:
                 # Single photo capture
@@ -452,9 +501,7 @@ class ScanTask(BaseTask):
                     scan_index=self._ctx.scan.index,
                 )
 
-                # Await the save so executor-backed file/metadata work cannot overlap with the
-                # next software-timed motor move and disturb GPIO step timing.
-                await self._ctx.project_manager.add_photo_async(photo_data)
+                captured_photos.append(photo_data)
             else:
                 # Focus stacking capture
                 focus_positions = self._ctx.focus_context["positions"]
@@ -468,7 +515,7 @@ class ScanTask(BaseTask):
                             display_index,
                             total_focus_stacks,
                         )
-                        return
+                        return captured_photos
                     logger.debug(
                         "Focus stacking enabled, capturing photo %d / %d with focus %s",
                         display_index,
@@ -488,12 +535,18 @@ class ScanTask(BaseTask):
                         stack_index=stack_index,
                     )
 
-                    # Keep save work serialized with captures/moves; see single-photo path above.
-                    await self._ctx.project_manager.add_photo_async(photo_data)
+                    captured_photos.append(photo_data)
 
         except Exception as e:
             logger.error("Error taking photo at position %s: %s", index, e, exc_info=True)
             raise
+
+        return captured_photos
+
+    async def _save_photos(self, photos: list[PhotoData]) -> None:
+        """Persist a captured position batch sequentially."""
+        for photo_data in photos:
+            await self._ctx.project_manager.add_photo_async(photo_data)
 
     async def _wait_before_capture(self) -> None:
         """Pause before capture to allow motor-induced vibrations to settle."""

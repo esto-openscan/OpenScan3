@@ -852,6 +852,132 @@ def test_generate_scan_path_passes_default_phi_constraints() -> None:
     assert list(path_dict.keys()) == [PolarPoint3D(theta=10.0, fi=20.0, r=250.0)]
 
 
+@pytest.mark.asyncio
+async def test_scan_save_pipeline_overlaps_capture_but_not_movement(
+    sample_scan_model: Scan,
+    fake_photo_data: PhotoData,
+) -> None:
+    """Save the previous position during capture, never during motor movement."""
+    scan = sample_scan_model.model_copy(deep=True)
+    scan.settings.pause_before_capture_ms = 0
+    points = {
+        PolarPoint3D(theta=float(index), fi=float(index)): index
+        for index in range(3)
+    }
+
+    events: list[str] = []
+    state = {"moving": False, "saving": False, "capture": 0}
+
+    async def move_to_point(point: PolarPoint3D) -> None:
+        assert not state["saving"]
+        state["moving"] = True
+        events.append(f"move:{int(point.theta)}")
+        await asyncio.sleep(0)
+        state["moving"] = False
+
+    async def capture_photo(_image_format: str) -> PhotoData:
+        capture_index = state["capture"]
+        state["capture"] += 1
+        assert not state["moving"]
+        events.append(f"capture:{capture_index}")
+
+        if capture_index > 0:
+            for _ in range(100):
+                if state["saving"]:
+                    break
+                await asyncio.sleep(0)
+            assert state["saving"]
+
+        await asyncio.sleep(0.001)
+        return fake_photo_data.model_copy(deep=True)
+
+    async def save_photo(photo_data: PhotoData) -> None:
+        assert not state["moving"]
+        state["saving"] = True
+        events.append(f"save:{photo_data.scan_metadata.step}")
+        await asyncio.sleep(0.01)
+        state["saving"] = False
+
+    camera_controller = MagicMock()
+    camera_controller.photo_async = AsyncMock(side_effect=capture_photo)
+
+    project_manager = MagicMock()
+    project_manager.add_photo_async = AsyncMock(side_effect=save_photo)
+    project_manager.save_scan_state = AsyncMock()
+
+    scan_task = ScanTask(Task(name="scan_task", task_type="core"))
+    scan_task._ctx = ScanRuntime(
+        scan=scan,
+        camera_controller=camera_controller,
+        project_manager=project_manager,
+        path_dict=points,
+        focus_context=None,
+    )
+
+    with patch(
+        "openscan_firmware.controllers.hardware.motors.move_to_point",
+        new=AsyncMock(side_effect=move_to_point),
+    ) as move_mock:
+        progress = [
+            update
+            async for update in scan_task._execute_scan_loop(
+                start_from_step=0,
+                total=len(points),
+            )
+        ]
+
+    assert move_mock.await_count == len(points)
+    assert project_manager.add_photo_async.await_count == len(points)
+    assert events.index("move:1") < events.index("save:0")
+    assert events.index("move:2") < events.index("save:1")
+    assert progress[-1].current == len(points)
+    assert progress[-1].message == "Scan completed successfully."
+
+
+@pytest.mark.asyncio
+async def test_scan_save_pipeline_stops_before_next_move_on_save_error(
+    sample_scan_model: Scan,
+    fake_photo_data: PhotoData,
+) -> None:
+    """A failed previous-position save must prevent another motor movement."""
+    scan = sample_scan_model.model_copy(deep=True)
+    points = {
+        PolarPoint3D(theta=float(index), fi=float(index)): index
+        for index in range(3)
+    }
+
+    camera_controller = MagicMock()
+    camera_controller.photo_async = AsyncMock(
+        side_effect=lambda _format: fake_photo_data.model_copy(deep=True)
+    )
+
+    project_manager = MagicMock()
+    project_manager.add_photo_async = AsyncMock(side_effect=OSError("disk full"))
+    project_manager.save_scan_state = AsyncMock()
+
+    scan_task = ScanTask(Task(name="scan_task", task_type="core"))
+    scan_task._ctx = ScanRuntime(
+        scan=scan,
+        camera_controller=camera_controller,
+        project_manager=project_manager,
+        path_dict=points,
+        focus_context=None,
+    )
+
+    with patch(
+        "openscan_firmware.controllers.hardware.motors.move_to_point",
+        new_callable=AsyncMock,
+    ) as move_mock:
+        with pytest.raises(OSError, match="disk full"):
+            async for _ in scan_task._execute_scan_loop(
+                start_from_step=0,
+                total=len(points),
+            ):
+                pass
+
+    assert move_mock.await_count == 2
+
+
 def test_generate_scan_path_passes_optional_phi_constraints_when_set() -> None:
     scan_settings = ScanSetting(
         path_method=PathMethod.FIBONACCI,
