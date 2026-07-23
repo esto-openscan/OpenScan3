@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openscan-firmware"
-version = "0.11.4"
+version = "0.12.0"
 description = "OpenScan3 - Raspberry Pi based photogrammetry scanner (FastAPI-based application)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -67,11 +67,15 @@ where = ["."]
 include = ["openscan_firmware*"]
 
 [tool.setuptools.package-data]
-"openscan_firmware" = ["**/*.json"]
+"openscan_firmware" = ["**/*.json", "utils/camera_report.sh"]
 
 [tool.setuptools.data-files]
 "openscan_firmware/settings/device" = [
-  "settings/device/*.json",
+  "settings/device/default_classic_greenshield.json",
+  "settings/device/default_midi_blackshield.json",
+  "settings/device/default_mini_blackshield.json",
+  "settings/device/default_mini_greenshield.json",
+  "settings/device/example_custom.json",
 ]
 "openscan_firmware/settings/firmware" = [
   "settings/firmware/*.json",
