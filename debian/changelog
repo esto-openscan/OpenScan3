@@ -1,50 +1,8 @@
-openscan3-firmware (0.11.10) unstable; urgency=medium
+openscan3-firmware (0.12.0) unstable; urgency=medium
 
-  * Add combined system update check and apply API endpoints for the
-    user-facing update flow.
-  * Run OpenScan package updates before rechecking and applying system updates.
-  * Enable and start openscan3.service on fresh package installation.
+  * Add Debian package installation and service integration for the firmware.
+  * Add API support for checking and installing OpenScan system updates.
+  * Add system health checks and repair actions.
+  * Preserve existing device settings during installation and upgrades.
 
- -- OpenScan3 Contributors <info@openscan.eu>  Tue, 07 Jul 2026 00:00:00 +0200
-
-openscan3-firmware (0.11.9) unstable; urgency=medium
-
-  * Seed bundled default settings into /etc/openscan3 during package install.
-  * Keep runtime device_config.json out of packaged defaults.
-
- -- OpenScan3 Contributors <info@openscan.eu>  Fri, 03 Jul 2026 10:50:00 +0200
-
-openscan3-firmware (0.11.8) unstable; urgency=medium
-
-  * Add versioned system repair endpoint for repair-openscan3.
-  * Run the repair command through the fixed sudo updater argv map.
-  * Share update/repair locking and active-scan conflict handling.
-
- -- OpenScan3 Contributors <info@openscan.eu>  Wed, 01 Jul 2026 15:40:00 +0200
-
-openscan3-firmware (0.11.7) unstable; urgency=medium
-
-  * Wire updater healthcheck command into the fixed system update API map.
-
- -- OpenScan3 Contributors <info@openscan.eu>  Wed, 01 Jul 2026 13:35:00 +0200
-
-openscan3-firmware (0.11.6) unstable; urgency=medium
-
-  * Move nginx site ownership out to openscan3-system-config.
-  * Drop firmware package nginx dependency and nginx reload handling.
-
- -- OpenScan3 Contributors <info@openscan.eu>  Wed, 01 Jul 2026 12:10:00 +0200
-
-openscan3-firmware (0.11.5) unstable; urgency=medium
-
-  * Fix service shutdown lifecycle for packaged runtime.
-  * Remove production reload supervisor from the systemd service.
-  * Move nginx site ownership into the firmware package.
-
- -- OpenScan3 Contributors <info@openscan.eu>  Mon, 29 Jun 2026 12:30:00 +0200
-
-openscan3-firmware (0.11.4) unstable; urgency=medium
-
-  * Add first Debian packaging milestone for the OpenScan3 firmware runtime.
-
- -- OpenScan3 Contributors <info@openscan.eu>  Mon, 29 Jun 2026 00:00:00 +0200
+ -- OpenScan3 Contributors <info@openscan.eu>  Thu, 23 Jul 2026 00:00:00 +0200
