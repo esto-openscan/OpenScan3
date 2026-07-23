@@ -103,15 +103,6 @@ async def _maybe_start_qr_wifi_scan(task_manager) -> None:
         logger.exception("Failed to auto-start QR WiFi scan task.")
 
 
-REQUIRED_CORE_TASKS = [
-    "scan_task",
-    "external_trigger_run_task",
-    "focus_stacking_task",
-    "cloud_upload_task",
-    "cloud_download_task",
-]
-
-
 def _env_flag(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
     if value is None:
@@ -142,7 +133,6 @@ async def lifespan(app: FastAPI):
 
     task_manager.initialize_core_tasks(
         autodiscovery_enabled=autodiscovery_enabled,
-        required_core_tasks=set(REQUIRED_CORE_TASKS),
         override_on_conflict=override_on_conflict,
     )
 

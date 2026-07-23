@@ -62,7 +62,7 @@ OpenScan3 uses a centralized background task system to coordinate long-running a
 During application startup (see `openscan_firmware/main.py` in the FastAPI lifespan handler):
 
 1. Logging and device initialization are performed.
-2. `TaskManager.initialize_core_tasks()` enforces the core task set. With `OPENSCAN_TASK_AUTODISCOVERY=1`, it runs discovery inside the default namespaces; otherwise it registers the built-in core implementations manually.
+2. `TaskManager.initialize_core_tasks()` loads the classes from the static core task registry. With `OPENSCAN_TASK_AUTODISCOVERY=1`, it runs discovery and validates every registry entry; otherwise it registers every built-in class explicitly.
 3. After initialization, `TaskManager.restore_tasks_from_persistence()` recovers previously persisted tasks.
 
 ### Task Discovery and Structure
