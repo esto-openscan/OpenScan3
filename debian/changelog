@@ -1,0 +1,8 @@
+openscan3-firmware (0.12.0) unstable; urgency=medium
+
+  * Add Debian package installation and service integration for the firmware.
+  * Add API support for checking and installing OpenScan system updates.
+  * Add system health checks and repair actions.
+  * Preserve existing device settings during installation and upgrades.
+
+ -- OpenScan3 Contributors <info@openscan.eu>  Thu, 23 Jul 2026 00:00:00 +0200

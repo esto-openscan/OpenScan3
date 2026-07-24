@@ -31,7 +31,7 @@ from openscan_firmware.controllers.hardware.motors import move_to_point
 from openscan_firmware.utils.paths import paths
 from openscan_firmware.cli import DEFAULT_RELOAD_TRIGGER
 
-CAMERA_REPORT_SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "camera_report.sh"
+CAMERA_REPORT_SCRIPT = Path(__file__).resolve().parents[2] / "utils" / "camera_report.sh"
 
 
 router = APIRouter(

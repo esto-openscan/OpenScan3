@@ -1,0 +1,47 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE=1
+
+PYPROJECT_VERSION := $(shell python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')
+DEBIAN_VERSION := $(shell dpkg-parsechangelog -SVersion)
+WHEELHOUSE := debian/build-wheelhouse
+RELEASE_DIR := debian/openscan3-firmware/opt/openscan3/releases/$(PYPROJECT_VERSION)
+RELEASE_METADATA := debian/openscan3-firmware/usr/share/openscan3-firmware/release.json
+OPENSCAN_RELEASE_CHANNEL ?= stable
+
+%:
+	dh $@
+
+override_dh_auto_clean:
+	dh_auto_clean
+	rm -rf build dist *.egg-info $(WHEELHOUSE)
+
+override_dh_auto_build:
+	mkdir -p $(WHEELHOUSE)
+	python3 -m pip wheel --wheel-dir $(WHEELHOUSE) .
+
+override_dh_auto_install:
+	mkdir -p $(RELEASE_DIR)/wheels
+	cp -a $(WHEELHOUSE)/*.whl $(RELEASE_DIR)/wheels/
+	mkdir -p $(RELEASE_DIR)/default-settings/device
+	mkdir -p $(RELEASE_DIR)/default-settings/firmware
+	mkdir -p $(RELEASE_DIR)/default-settings/logging
+	cp -a settings/device/default_*.json $(RELEASE_DIR)/default-settings/device/
+	cp -a settings/device/example_custom.json $(RELEASE_DIR)/default-settings/device/
+	cp -a settings/firmware/*.json $(RELEASE_DIR)/default-settings/firmware/
+	cp -a settings/logging/*.json $(RELEASE_DIR)/default-settings/logging/
+	python3 scripts/write-release-metadata.py \
+		--output $(RELEASE_METADATA) \
+		--channel "$(OPENSCAN_RELEASE_CHANNEL)" \
+		--debian-version "$(DEBIAN_VERSION)" \
+		--python-version "$(PYPROJECT_VERSION)" \
+		--build-timestamp "$(OPENSCAN_RELEASE_TIMESTAMP)" \
+		--source-revision "$(OPENSCAN_SOURCE_REVISION)" \
+		--expected-debian-version "$(OPENSCAN_DEBIAN_VERSION)" \
+		--expected-python-version "$(OPENSCAN_PYTHON_VERSION)"
+
+override_dh_installsystemd:
+	# Let debhelper enable the unit using deb-systemd-helper.  That works while
+	# pi-gen installs the package in a chroot, where systemd itself is not
+	# running.  Do not start the service during package installation.
+	dh_installsystemd --no-start

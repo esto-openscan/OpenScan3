@@ -102,3 +102,10 @@ Client guidance:
 
 - Prefer `/latest/...` to always track the current stable API.
 - Pin to `/vX.Y/...` if you need strict compatibility.
+
+## System Update API
+
+The firmware backend exposes update-related routes through a narrow wrapper
+around `sudo /usr/bin/openscan-updater` and keeps APT/package policy inside the
+updater package. See [docs/SYSTEM_UPDATE_API.md](./SYSTEM_UPDATE_API.md) for the
+endpoint list, safety model, and deployment notes.

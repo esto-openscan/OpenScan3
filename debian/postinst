@@ -1,0 +1,193 @@
+#!/bin/sh
+set -e
+
+DEB_PACKAGE_NAME="openscan3-firmware"
+PYTHON_PACKAGE_NAME="openscan-firmware"
+RUNTIME_USER="openscan"
+RUNTIME_GROUP="openscan"
+RELEASES_DIR="/opt/openscan3/releases"
+CURRENT_LINK="/opt/openscan3/current"
+SERVICE_STATE_DIR="/run/openscan3-firmware"
+SERVICE_WAS_ACTIVE_FILE="$SERVICE_STATE_DIR/openscan3.service-was-active"
+RELEASE_METADATA="/usr/share/openscan3-firmware/release.json"
+
+package_version() {
+    dpkg-query -W -f='${Version}' "$DEB_PACKAGE_NAME"
+}
+
+bundled_python_version() {
+    debian_version="$1"
+    python3 - "$RELEASE_METADATA" "$debian_version" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+installed_debian_version = sys.argv[2]
+try:
+    metadata = json.loads(path.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError) as error:
+    raise SystemExit(f"Invalid or missing firmware release metadata {path}: {error}")
+
+if metadata.get("schema") != 1:
+    raise SystemExit(f"Unsupported firmware release metadata schema in {path}")
+if metadata.get("debian_version") != installed_debian_version:
+    raise SystemExit(
+        "Firmware release metadata does not match installed Debian version: "
+        f"{metadata.get('debian_version')!r} != {installed_debian_version!r}"
+    )
+python_version = metadata.get("python_version")
+if not isinstance(python_version, str) or not python_version:
+    raise SystemExit(f"Missing Python version in firmware release metadata {path}")
+print(python_version)
+PY
+}
+
+ensure_runtime_user() {
+    if ! getent group "$RUNTIME_GROUP" >/dev/null; then
+        addgroup --system "$RUNTIME_GROUP" >/dev/null
+    fi
+
+    if ! getent passwd "$RUNTIME_USER" >/dev/null; then
+        adduser \
+            --system \
+            --ingroup "$RUNTIME_GROUP" \
+            --home /var/openscan3 \
+            --no-create-home \
+            --disabled-login \
+            "$RUNTIME_USER" >/dev/null
+    fi
+}
+
+set_default_acl_if_available() {
+    dir="$1"
+    if command -v setfacl >/dev/null 2>&1; then
+        setfacl -m "g:${RUNTIME_GROUP}:rwx" -m "d:g:${RUNTIME_GROUP}:rwx" "$dir" || true
+    else
+        # TODO: Consider depending on acl once the image/package baseline is settled.
+        :
+    fi
+}
+
+create_runtime_dir() {
+    dir="$1"
+    install -d -o "$RUNTIME_USER" -g "$RUNTIME_GROUP" -m 2775 "$dir"
+    chmod 2775 "$dir"
+    chown "$RUNTIME_USER:$RUNTIME_GROUP" "$dir"
+    set_default_acl_if_available "$dir"
+}
+
+seed_settings_file() {
+    source_file="$1"
+    target_file="$2"
+
+    if [ ! -f "$source_file" ]; then
+        return 0
+    fi
+
+    if [ -e "$target_file" ]; then
+        return 0
+    fi
+
+    install -o "$RUNTIME_USER" -g "$RUNTIME_GROUP" -m 0664 "$source_file" "$target_file"
+}
+
+seed_default_settings() {
+    version="$1"
+    defaults_dir="$RELEASES_DIR/$version/default-settings"
+
+    if [ ! -d "$defaults_dir" ]; then
+        echo "Missing bundled default settings: $defaults_dir" >&2
+        return 0
+    fi
+
+    create_runtime_dir /etc/openscan3/device
+    create_runtime_dir /etc/openscan3/firmware
+    create_runtime_dir /etc/openscan3/logging
+
+    for source_file in "$defaults_dir"/device/*.json; do
+        seed_settings_file "$source_file" "/etc/openscan3/device/$(basename "$source_file")"
+    done
+    for source_file in "$defaults_dir"/firmware/*.json; do
+        seed_settings_file "$source_file" "/etc/openscan3/firmware/$(basename "$source_file")"
+    done
+    for source_file in "$defaults_dir"/logging/*.json; do
+        seed_settings_file "$source_file" "/etc/openscan3/logging/$(basename "$source_file")"
+    done
+}
+
+install_release_venv() {
+    version="$1"
+    release_dir="$RELEASES_DIR/$version"
+    wheelhouse="$release_dir/wheels"
+    venv="$release_dir/venv"
+
+    if [ ! -d "$wheelhouse" ]; then
+        echo "Missing bundled wheelhouse: $wheelhouse" >&2
+        exit 1
+    fi
+
+    rm -rf "$venv"
+    python3 -m venv --system-site-packages "$venv"
+    "$venv/bin/python" -m pip install \
+        --no-index \
+        --find-links="$wheelhouse" \
+        "$PYTHON_PACKAGE_NAME==$version"
+
+    chown -R root:root "$release_dir"
+    find "$release_dir" -type d -exec chmod 0755 {} +
+}
+
+update_current_link() {
+    version="$1"
+    release_dir="$RELEASES_DIR/$version"
+
+    if [ -L "$CURRENT_LINK" ] || [ ! -e "$CURRENT_LINK" ]; then
+        ln -sfn "$release_dir" "$CURRENT_LINK"
+    else
+        echo "$CURRENT_LINK exists and is not a symlink; leaving it unchanged" >&2
+    fi
+}
+
+reload_and_restart_service() {
+    previous_version="${1:-}"
+
+    if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+        systemctl daemon-reload
+
+        if [ -f "$SERVICE_WAS_ACTIVE_FILE" ]; then
+            systemctl restart openscan3.service
+            rm -f "$SERVICE_WAS_ACTIVE_FILE"
+        elif [ -z "$previous_version" ]; then
+            systemctl start openscan3.service || true
+        else
+            systemctl try-restart openscan3.service || true
+        fi
+    fi
+}
+
+case "$1" in
+    configure)
+        version="$(package_version)"
+        python_version="$(bundled_python_version "$version")"
+
+        ensure_runtime_user
+
+        install -d -o root -g root -m 0755 /opt/openscan3 "$RELEASES_DIR"
+        create_runtime_dir /etc/openscan3
+        create_runtime_dir /var/openscan3
+        create_runtime_dir /var/openscan3/projects
+        create_runtime_dir /var/openscan3/community-tasks
+        create_runtime_dir /var/log/openscan3
+
+        seed_default_settings "$python_version"
+        install_release_venv "$python_version"
+        update_current_link "$python_version"
+        # TODO: Prune older release directories after release-retention policy is defined.
+        reload_and_restart_service "${2:-}"
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0
