@@ -38,15 +38,284 @@ modules such as `base_task`, `task_manager`, and everything under `examples*`. N
 checks (`task_name` must be snake_case ending in `_task`) and missing-name failures are
 hardcoded policies.
 
-The firmware enforces a fixed core set (`scan_task`, `focus_stacking_task`,
-`cloud_upload_task`, `cloud_download_task`). Startup fails if any are missing after
-discovery, so keep those names available even when overriding implementations.
+The firmware's static core registry is the source of truth for all built-in
+tasks. Startup fails if any built-in task is missing after discovery, so keep
+those names available even when overriding implementations.
 
 A module can opt out of autodiscovery by declaring `__openscan_autodiscover__ = False` at the module level.
 
 ### Advanced override (power users only)
 
 The firmware defaults to keeping the first task registered under a given `task_name` and will log a warning for duplicates. If you deliberately want to swap out a core task (e.g., custom `scan_task`), export `OPENSCAN_TASK_OVERRIDE_ON_CONFLICT=1` together mit `OPENSCAN_TASK_AUTODISCOVERY=1`. Nur einschalten, wenn du die Ersatz-Implementierung komplett kontrollierst – ein falsch überschriebenes Core-Task bricht den Scanner.
+
+## Tinkerer Workflow: External Tasks with Autodiscovery
+
+This workflow is for experimenting with a trusted custom task on one
+administered scanner. The task is installed directly on the device and remains
+separate from the main firmware. It is convenient for prototypes and local
+automation, but it is not the way to add a permanent supported feature.
+
+This workflow deliberately enables the execution of locally installed Python
+code. Only install task files whose complete contents you trust. Do not expose
+task installation or the autodiscovery switch through an unauthenticated API or
+frontend.
+
+The following example assumes that you already provisioned an administrator
+account on the Raspberry Pi and can connect over SSH.
+
+### 1. Create the task file
+
+Connect to the scanner and create the external task directory:
+
+```bash
+ssh <username>@openscan.local
+sudo install -d -o openscan -g openscan -m 0750 \
+  /var/openscan3/community-tasks
+sudoedit /var/openscan3/community-tasks/hello_world_task.py
+```
+
+Add this minimal task:
+
+```python
+from openscan_firmware.controllers.services.tasks.base_task import BaseTask
+from openscan_firmware.models.task import TaskProgress
+
+
+class HelloWorldTask(BaseTask):
+    task_name = "hello_world_task"
+    task_category = "community"
+    is_exclusive = False
+    is_blocking = False
+
+    async def run(self, name: str = "world"):
+        self._task_model.progress = TaskProgress(
+            current=0,
+            total=1,
+            message="Starting",
+        )
+
+        message = f"Hello, {name}!"
+
+        self._task_model.progress = TaskProgress(
+            current=1,
+            total=1,
+            message="Finished",
+        )
+        return {"message": message}
+```
+
+Make the file readable by the `openscan` service account:
+
+```bash
+sudo chown openscan:openscan \
+  /var/openscan3/community-tasks/hello_world_task.py
+sudo chmod 0640 \
+  /var/openscan3/community-tasks/hello_world_task.py
+```
+
+External discovery reads plain top-level `*.py` files from this directory.
+Files beginning with `__` are ignored. A package directory or `__init__.py` is
+not required.
+
+### 2. Enable autodiscovery locally
+
+Create a systemd override:
+
+```bash
+sudo systemctl edit openscan3.service
+```
+
+Enter:
+
+```ini
+[Service]
+Environment="OPENSCAN_TASK_AUTODISCOVERY=1"
+```
+
+Save the editor and restart the firmware:
+
+```bash
+sudo systemctl restart openscan3.service
+```
+
+Autodiscovery only runs during firmware startup. Adding or changing a task file
+therefore requires another restart.
+
+Do not enable `OPENSCAN_TASK_OVERRIDE_ON_CONFLICT` for an ordinary custom task.
+It is unnecessary when the new `task_name` is unique and would allow external
+files to replace core task implementations.
+
+### 3. Verify registration
+
+Inspect the service log:
+
+```bash
+sudo journalctl -u openscan3.service -b -n 100 --no-pager
+```
+
+A successful startup contains a message similar to:
+
+```text
+Task 'hello_world_task' (...) registered via autodiscovery.
+```
+
+If the task is missing, check that:
+
+- the file ends in `.py` and is directly inside the community task directory;
+- the service account can read the file;
+- the class inherits from `BaseTask`;
+- `task_name` is explicit, uses snake_case, and ends in `_task`;
+- importing the file does not raise an exception; and
+- `OPENSCAN_TASK_AUTODISCOVERY=1` appears in the service environment.
+
+The effective environment can be inspected with:
+
+```bash
+sudo systemctl show openscan3.service --property=Environment
+```
+
+### 4. Run the task
+
+Start the task through the task API:
+
+```bash
+curl --request POST \
+  http://openscan.local/api/latest/tasks/hello_world_task \
+  --header 'Content-Type: application/json' \
+  --data '{"kwargs":{"name":"OpenScan"}}'
+```
+
+The API returns a task model with an `id`. Use that ID to inspect its state:
+
+```bash
+curl http://openscan.local/api/latest/tasks/<task-id>
+```
+
+Task parameters come from the request body's `args` and `kwargs` fields and are
+passed to the task's `run()` method. Registration makes a task available to the
+scheduler; it does not automatically start the task.
+
+### 5. Disable external task loading
+
+Open the same override again:
+
+```bash
+sudo systemctl edit openscan3.service
+```
+
+Change the flag to:
+
+```ini
+[Service]
+Environment="OPENSCAN_TASK_AUTODISCOVERY=0"
+```
+
+Then restart the service:
+
+```bash
+sudo systemctl restart openscan3.service
+```
+
+The Python file remains on disk but is no longer imported. Setting the flag
+explicitly to `0` avoids accidentally removing unrelated local service
+overrides.
+
+## Firmware Developer Workflow: Permanent Integration
+
+Use this workflow when a task should become a maintained part of OpenScan,
+survive firmware updates, and be available to other users.
+
+### 1. Discuss the task with the maintainers
+
+Before adding a permanent task, discuss it with the OpenScan maintainers. This
+helps decide:
+
+- whether it should be a background task at all;
+- its stable `task_name`;
+- whether it must run exclusively;
+- how users or other firmware features will start it; and
+- whether it introduces new dependencies or hardware requirements.
+
+This avoids committing to a public task name or behavior that will be difficult
+to change later.
+
+### 2. Add the task class
+
+Put the implementation under:
+
+```text
+openscan_firmware/controllers/services/tasks/core/
+```
+
+Use the `BaseTask` contract described below, including an explicit stable
+`task_name`. Importing the file must not initialize hardware, open network
+connections, or start other work. Do that inside `run()` instead.
+
+### 3. Add it to the built-in registry
+
+Import the class in
+`openscan_firmware/controllers/services/tasks/core/registry.py` and add one
+class to `BUILTIN_TASKS`:
+
+```python
+from openscan_firmware.controllers.services.tasks.core.hello_world_task import (
+    HelloWorldTask,
+)
+
+BUILTIN_TASKS = (
+    # Existing built-in task classes...
+    HelloWorldTask,
+)
+```
+
+The registry reads the name from `HelloWorldTask.task_name`, so it is declared
+only once. No JSON entry or second list of task names is required.
+
+### 4. Make the task available where it is needed
+
+Every registered task can already be started through
+`POST /tasks/{task_name}`. If another firmware feature needs to start it, add a
+small function for that feature:
+
+```python
+from openscan_firmware.controllers.services.tasks.task_manager import (
+    get_task_manager,
+)
+
+
+async def start_hello_world(name: str):
+    return await get_task_manager().create_and_run_task(
+        "hello_world_task",
+        name=name,
+    )
+```
+
+Call the function instead of creating the task class directly. A new dedicated
+API endpoint is only needed if the task is part of a larger user-facing
+workflow.
+
+### 5. Add tests
+
+A permanent task should have tests for:
+
+- its normal result and important error cases;
+- arguments passed to `run()`;
+- cancellation or pause behavior, if supported; and
+- registration through `BUILTIN_TASKS`.
+
+Place task-specific tests under `tests/controllers/services/tasks/` where
+possible.
+
+Run at least:
+
+```bash
+.venv/bin/pytest -q \
+  tests/controllers/services/test_task_autodiscovery.py \
+  tests/controllers/services/test_task_manager.py
+```
+
+When moving a prototype into the firmware, remove its external copy from
+`/var/openscan3/community-tasks` to avoid two tasks with the same name.
 
 ## Task Class Requirements
 

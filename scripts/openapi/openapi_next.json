@@ -1599,6 +1599,160 @@
         }
       }
     },
+    "/system/update/status": {
+      "get": {
+        "tags": [
+          "system update"
+        ],
+        "summary": "Get Update Status",
+        "operationId": "get_update_status",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/system/update/check": {
+      "post": {
+        "tags": [
+          "system update"
+        ],
+        "summary": "Check For Updates",
+        "operationId": "check_for_updates",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/system/update/apply": {
+      "post": {
+        "tags": [
+          "system update"
+        ],
+        "summary": "Apply Updates",
+        "operationId": "apply_updates",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/system/update/openscan": {
+      "post": {
+        "tags": [
+          "system update"
+        ],
+        "summary": "Update Openscan",
+        "operationId": "update_openscan",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/system/update/healthcheck": {
+      "post": {
+        "tags": [
+          "system update"
+        ],
+        "summary": "Update Healthcheck",
+        "operationId": "update_healthcheck",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/system/update/logs": {
+      "get": {
+        "tags": [
+          "system update"
+        ],
+        "summary": "Get Update Logs",
+        "operationId": "get_update_logs",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/system/repair/openscan3": {
+      "post": {
+        "tags": [
+          "system repair"
+        ],
+        "summary": "Repair Openscan3",
+        "operationId": "repair_openscan3",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
     "/projects/": {
       "get": {
         "tags": [
@@ -4373,6 +4527,18 @@
               "default": "json",
               "title": "Format"
             }
+          },
+          {
+            "name": "release_cameras",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Temporarily release OpenScan camera controllers so rpicam/libcamera probes can acquire cameras.",
+              "default": true,
+              "title": "Release Cameras"
+            },
+            "description": "Temporarily release OpenScan camera controllers so rpicam/libcamera probes can acquire cameras."
           }
         ],
         "responses": {
@@ -4463,7 +4629,7 @@
           "develop"
         ],
         "summary": "Hello World Async",
-        "description": "Start the async hello world demo task.",
+        "description": "Start the async hello world progress demo task.",
         "operationId": "hello_world_async",
         "parameters": [
           {

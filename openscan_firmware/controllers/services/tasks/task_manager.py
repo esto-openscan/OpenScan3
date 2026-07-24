@@ -117,47 +117,31 @@ class TaskManager:
     def initialize_core_tasks(
         self,
         autodiscovery_enabled: bool,
-        required_core_tasks: set[str],
         override_on_conflict: bool = False,
     ) -> None:
         """Ensure the core task set is available according to startup mode."""
+        from openscan_firmware.controllers.services.tasks.core.registry import BUILTIN_TASKS
+
+        builtin_tasks: dict[str, type[BaseTask]] = {}
+        for task_class in BUILTIN_TASKS:
+            task_name = task_class.task_name
+            if not task_name:
+                raise RuntimeError(
+                    f"Built-in task {task_class.__name__} has no explicit task_name."
+                )
+            if task_name in builtin_tasks:
+                raise RuntimeError(f"Duplicate built-in task name: {task_name}")
+            builtin_tasks[task_name] = task_class
+
         if autodiscovery_enabled:
             self.autodiscover_tasks(override_on_conflict=override_on_conflict)
-            missing = required_core_tasks - set(self._task_registry.keys())
+            missing = set(builtin_tasks) - set(self._task_registry)
             if missing:
-                raise RuntimeError(f"Missing required core tasks: {sorted(missing)}")
+                raise RuntimeError(f"Missing built-in tasks: {sorted(missing)}")
             return
 
-        self._register_builtin_core_tasks()
-
-    def _register_builtin_core_tasks(self) -> None:
-        """Register the built-in core tasks for manual/fallback mode."""
-        from openscan_firmware.controllers.services.tasks.core.scan_task import ScanTask as CoreScanTask
-        from openscan_firmware.controllers.services.tasks.core.external_trigger_run_task import (
-            ExternalTriggerRunTask as CoreExternalTriggerRunTask,
-        )
-        from openscan_firmware.controllers.services.tasks.core.focus_stacking_task import (
-            FocusStackingTask as CoreFocusStackingTask,
-        )
-        from openscan_firmware.controllers.services.tasks.core.cloud_task import (
-            CloudUploadTask as CoreCloudUploadTask,
-            CloudDownloadTask as CoreCloudDownloadTask,
-        )
-        from openscan_firmware.controllers.services.tasks.core.qr_scan_task import (
-            QrScanTask as CoreQrScanTask,
-        )
-
-        fallback_tasks = {
-            "scan_task": CoreScanTask,
-            "external_trigger_run_task": CoreExternalTriggerRunTask,
-            "focus_stacking_task": CoreFocusStackingTask,
-            "cloud_upload_task": CoreCloudUploadTask,
-            "cloud_download_task": CoreCloudDownloadTask,
-            "qr_scan_task": CoreQrScanTask,
-        }
-
-        for task_name, task_cls in fallback_tasks.items():
-            self.register_task(task_name, task_cls)
+        for task_name, task_class in builtin_tasks.items():
+            self.register_task(task_name, task_class)
 
     def restore_tasks_from_persistence(self):
         """Loads all persisted task JSON files from the storage directory.

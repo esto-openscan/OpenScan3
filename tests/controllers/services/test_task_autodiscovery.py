@@ -2,12 +2,19 @@ import os
 import shutil
 import pytest
 
+from openscan_firmware.controllers.services.tasks.core.registry import BUILTIN_TASKS
+from openscan_firmware.controllers.services.tasks import (
+    task_manager as task_manager_module,
+)
 from openscan_firmware.controllers.services.tasks.task_manager import TaskManager
+
+
+BUILTIN_TASK_NAMES = {task_class.task_name for task_class in BUILTIN_TASKS}
 
 
 @pytest.mark.asyncio
 async def test_autodiscover_registers_core_tasks():
-    """Autodiscovery should register at least the required core tasks.
+    """Autodiscovery should register every built-in task.
 
     We only assert the presence of core tasks here to avoid coupling to demo examples.
     """
@@ -27,19 +34,14 @@ async def test_autodiscover_registers_core_tasks():
         override_on_conflict=False,
     )
 
-    required_core = {
-        "scan_task",
-        "focus_stacking_task",
-        "cloud_upload_task",
-        "cloud_download_task",
-    }
+    builtin_names = BUILTIN_TASK_NAMES
 
     # Core tasks must be present
-    for task_name in required_core:
+    for task_name in builtin_names:
         assert task_name in tm._task_registry
 
     # The method should return the list of newly registered tasks
-    for task_name in required_core:
+    for task_name in builtin_names:
         assert task_name in registered
 
 
@@ -63,15 +65,10 @@ async def test_autodiscover_safe_mode_handles_import_errors():
         override_on_conflict=False,
     )
 
-    required_core = {
-        "scan_task",
-        "focus_stacking_task",
-        "cloud_upload_task",
-        "cloud_download_task",
-    }
+    builtin_names = BUILTIN_TASK_NAMES
 
     # Core tasks should still be discovered
-    for task_name in required_core:
+    for task_name in builtin_names:
         assert task_name in tm._task_registry
 
 
@@ -104,14 +101,9 @@ async def test_autodiscover_defaults_register_core_tasks():
 
     registered = tm.autodiscover_tasks()
 
-    required_core = {
-        "scan_task",
-        "focus_stacking_task",
-        "cloud_upload_task",
-        "cloud_download_task",
-    }
+    builtin_names = BUILTIN_TASK_NAMES
 
-    for task_name in required_core:
+    for task_name in builtin_names:
         assert task_name in tm._task_registry
         assert task_name in registered
 
@@ -143,3 +135,55 @@ async def test_autodiscover_conflict_override_false():
 
     # Registry should still point to the original dummy task
     assert tm._task_registry["scan_task"] is original_cls
+
+
+def test_external_task_overrides_builtin_when_enabled(tmp_path, monkeypatch):
+    override_file = tmp_path / "scan_override.py"
+    override_file.write_text(
+        "\n".join(
+            [
+                "from openscan_firmware.controllers.services.tasks.base_task import BaseTask",
+                "",
+                "class ScanOverrideTask(BaseTask):",
+                '    task_name = "scan_task"',
+                '    task_category = "community"',
+                "",
+                "    async def run(self):",
+                '        return "external override"',
+            ]
+        )
+    )
+    monkeypatch.setattr(
+        task_manager_module,
+        "resolve_community_tasks_dir",
+        lambda: tmp_path,
+    )
+
+    TaskManager._instance = None
+    tm = TaskManager()
+    tm.initialize_core_tasks(
+        autodiscovery_enabled=True,
+        override_on_conflict=True,
+    )
+
+    registered_class = tm._task_registry["scan_task"]
+    assert registered_class.__name__ == "ScanOverrideTask"
+    assert registered_class.__module__ == "openscan_external_tasks.scan_override"
+
+
+def test_builtin_registry_has_unique_explicit_names():
+    names = [task_class.task_name for task_class in BUILTIN_TASKS]
+
+    assert all(names)
+    assert len(names) == len(set(names))
+
+
+def test_initialize_core_tasks_uses_builtin_registry_without_autodiscovery():
+    TaskManager._instance = None
+    tm = TaskManager()
+
+    tm.initialize_core_tasks(autodiscovery_enabled=False)
+
+    assert tm._task_registry == {
+        task_class.task_name: task_class for task_class in BUILTIN_TASKS
+    }
