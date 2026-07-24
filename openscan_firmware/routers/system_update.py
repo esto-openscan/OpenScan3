@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from typing import Literal
+
+from fastapi import APIRouter, Response
+from pydantic import BaseModel
 
 from openscan_firmware.system_update import (
     UpdateConflictError,
-    read_updater_logs,
-    run_update_apply,
-    run_update_check,
-    run_update_openscan,
-    run_updater_command,
+    read_user_update_status,
+    refresh_user_update_status,
+    run_user_update_apply,
 )
 
 router = APIRouter(
@@ -21,57 +21,72 @@ router = APIRouter(
 )
 
 
-def _json(status_code: int, payload: dict) -> JSONResponse:
-    return JSONResponse(status_code=status_code, content=payload)
+class OpenScanUpdatePackage(BaseModel):
+    """One optional OpenScan component update for the details view."""
+
+    id: Literal["firmware", "client", "updater", "system_config", "camera_stack"]
+    installed_version: str | None
+    available_version: str | None
+    update_available: bool
 
 
-@router.get("/status")
-async def get_update_status() -> JSONResponse:
-    status_code, payload = await run_updater_command("status")
-    return _json(status_code, payload)
+class OpenScanUpdateSummary(BaseModel):
+    updates_available: bool
+    packages: list[OpenScanUpdatePackage]
 
 
-@router.post("/check")
-async def check_for_updates() -> JSONResponse:
-    status_code, payload = await run_update_check()
-    return _json(status_code, payload)
+class SystemUpdateSummary(BaseModel):
+    updates_available: bool
+    count: int
+    reboot_required_after_install: bool
 
 
-@router.post("/apply")
-async def apply_updates() -> JSONResponse:
+class UpdateStatusResponse(BaseModel):
+    """Cached, user-facing software update status."""
+
+    status: Literal[
+        "unknown",
+        "up_to_date",
+        "updates_available",
+        "status_unavailable",
+        "check_failed",
+    ]
+    checked_at: str | None
+    stale: bool
+    release_channel: Literal["stable", "nightly", "unknown"]
+    openscan: OpenScanUpdateSummary
+    system: SystemUpdateSummary
+    reboot_required: bool
+
+
+class UpdateInstallResponse(BaseModel):
+    """Result of a synchronous user-requested update installation."""
+
+    status: Literal["completed", "install_failed", "install_blocked"]
+    reboot_required: bool
+
+@router.get("/status", response_model=UpdateStatusResponse)
+async def get_update_status(response: Response) -> dict:
+    status_code, payload = await read_user_update_status()
+    response.status_code = status_code
+    return payload
+
+@router.post("/check", response_model=UpdateStatusResponse)
+async def check_for_updates(response: Response) -> dict:
+    status_code, payload = await refresh_user_update_status()
+    response.status_code = status_code
+    return payload
+
+
+@router.post("/apply", response_model=UpdateInstallResponse)
+async def apply_updates(response: Response) -> dict:
     try:
-        status_code, payload = await run_update_apply()
+        status_code, payload = await run_user_update_apply()
     except UpdateConflictError as exc:
         payload = {
-            "ok": False,
-            "command": "update_apply",
-            "error": {"type": exc.error_type, "message": exc.message},
+            "status": "install_blocked",
+            "reboot_required": False,
         }
         status_code = 409
-    return _json(status_code, payload)
-
-
-@router.post("/openscan")
-async def update_openscan() -> JSONResponse:
-    try:
-        status_code, payload = await run_update_openscan()
-    except UpdateConflictError as exc:
-        payload = {
-            "ok": False,
-            "command": "update_openscan",
-            "error": {"type": exc.error_type, "message": exc.message},
-        }
-        status_code = 409
-    return _json(status_code, payload)
-
-
-@router.post("/healthcheck")
-async def update_healthcheck() -> JSONResponse:
-    status_code, payload = await run_updater_command("healthcheck")
-    return _json(status_code, payload)
-
-
-@router.get("/logs")
-async def get_update_logs() -> JSONResponse:
-    status_code, payload = read_updater_logs()
-    return _json(status_code, payload)
+    response.status_code = status_code
+    return payload
