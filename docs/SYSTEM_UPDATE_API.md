@@ -25,18 +25,18 @@ for example `/api/latest/system/repair/openscan3`.
 | --- | --- | --- |
 | `GET` | `/system/update/status` | Runs `sudo /usr/bin/openscan-updater status --json` |
 | `POST` | `/system/update/check` | Runs the combined update check: OpenScan dry-run, then system update check |
-| `POST` | `/system/update/apply` | Runs the user-facing update flow: OpenScan update first, then system update check and system update |
+| `POST` | `/system/update/apply` | Schedules the fixed OpenScan-plus-system update flow in an independent transient systemd service |
 | `POST` | `/system/update/openscan` | Runs `sudo /usr/bin/openscan-updater update --json` |
 | `POST` | `/system/update/healthcheck` | Runs `sudo /usr/bin/openscan-updater healthcheck --json` |
 | `GET` | `/system/update/logs` | Returns the last 200 lines from fixed updater log files |
 | `POST` | `/system/repair/openscan3` | Runs `sudo /usr/bin/openscan-updater repair --json` |
 
 The user-facing update button should use `/system/update/check` for planning
-and `/system/update/apply` for execution. The apply flow deliberately keeps the
-internal stages separate: it updates OpenScan packages first, then starts a new
-system update check through the updater CLI, and only then runs the system
-update command. This lets newly installed updater policy, package protections,
-and camera-stack pinning take effect before non-OpenScan packages are changed.
+and `/system/update/apply` for execution. Apply returns `status: installing`
+after `openscan-update-apply.service` was scheduled. That transient service is
+outside the firmware service cgroup, so upgrading `openscan3-firmware` may
+restart the API without interrupting dpkg. The detached flow updates OpenScan
+packages first and then applies the classified system update.
 
 `/system/update/openscan` remains available as a narrower OpenScan-only action
 for recovery and compatibility. It does not apply Raspberry Pi OS or other
@@ -60,13 +60,13 @@ the manifest, reapply protections, restart services, and run healthcheck.
 - The logs endpoint reads only known updater log paths and returns a bounded tail.
 - The updater remains responsible for APT safety classification and package
   policy decisions.
-- The combined apply endpoint does not merge OpenScan and system policy. It only
-  orchestrates fixed updater commands in order.
+- The combined apply endpoint does not merge OpenScan and system policy. It
+  schedules one fixed updater command with no request-controlled arguments.
 
-`update`, combined update apply, and `repair` are protected
-by a shared process-local async lock. A second update or repair request returns
-`409 Conflict` while one command is already running. The updater CLI also uses a
-shared file lock at `/var/lock/openscan-updater.lock`.
+Scheduling and repair requests are protected by a process-local async lock.
+The detached update and updater repair paths use the shared file lock at
+`/var/lock/openscan-updater.lock`; the fixed transient unit name also prevents
+two detached apply jobs from running at once.
 
 Before starting `update`, combined update apply, or `repair`, the backend checks
 the task manager for active `scan_task`

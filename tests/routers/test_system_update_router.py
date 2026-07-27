@@ -34,6 +34,7 @@ def test_fixed_command_map_has_no_request_controlled_package_names():
         "check_openscan": ["sudo", "/usr/bin/openscan-updater", "update", "--dry-run", "--json"],
         "check_system": ["sudo", "/usr/bin/openscan-updater", "system", "check", "--json"],
         "update_openscan": ["sudo", "/usr/bin/openscan-updater", "update", "--json"],
+        "apply_updates": ["sudo", "/usr/bin/openscan-updater", "apply", "--detach", "--json"],
         "update_system": ["sudo", "/usr/bin/openscan-updater", "system", "update", "--json"],
         "repair_openscan3": ["sudo", "/usr/bin/openscan-updater", "repair", "--json"],
         "healthcheck": ["sudo", "/usr/bin/openscan-updater", "healthcheck", "--json"],
@@ -180,7 +181,7 @@ async def test_concurrent_update_attempts_are_rejected(monkeypatch):
     assert second_payload["error"]["type"] == "update_active"
 
 
-def test_apply_endpoint_runs_openscan_then_system_check_then_system_update(
+def test_apply_endpoint_schedules_independent_update_job(
     monkeypatch,
     update_client,
 ):
@@ -188,11 +189,7 @@ def test_apply_endpoint_runs_openscan_then_system_check_then_system_update(
 
     def fake_run(argv, **kwargs):
         calls.append(argv)
-        if argv == system_update.UPDATER_COMMANDS["update_openscan"]:
-            return _completed(argv, '{"ok": true, "updated": ["openscan3-updater"]}')
-        if argv == system_update.UPDATER_COMMANDS["check_system"]:
-            return _completed(argv, '{"ok": true, "classification": "allowed_userland"}')
-        return _completed(argv, '{"ok": true, "updated": ["rpi-swap"]}')
+        return _completed(argv, '{"ok": true, "status": "update_scheduled"}')
 
     monkeypatch.setattr(system_update, "is_scan_active", lambda: False)
     monkeypatch.setattr(system_update.subprocess, "run", fake_run)
@@ -201,15 +198,11 @@ def test_apply_endpoint_runs_openscan_then_system_check_then_system_update(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload == {"status": "completed", "reboot_required": False}
-    assert calls == [
-        system_update.UPDATER_COMMANDS["update_openscan"],
-        system_update.UPDATER_COMMANDS["check_system"],
-        system_update.UPDATER_COMMANDS["update_system"],
-    ]
+    assert payload == {"status": "installing", "reboot_required": False}
+    assert calls == [system_update.UPDATER_COMMANDS["apply_updates"]]
 
 
-def test_apply_endpoint_stops_before_system_when_openscan_fails(monkeypatch, update_client):
+def test_apply_endpoint_reports_schedule_failure(monkeypatch, update_client):
     calls = []
 
     def fake_run(argv, **kwargs):
@@ -224,7 +217,7 @@ def test_apply_endpoint_stops_before_system_when_openscan_fails(monkeypatch, upd
     assert response.status_code == 200
     payload = response.json()
     assert payload == {"status": "install_failed", "reboot_required": False}
-    assert calls == [system_update.UPDATER_COMMANDS["update_openscan"]]
+    assert calls == [system_update.UPDATER_COMMANDS["apply_updates"]]
 
 
 def test_apply_endpoint_blocks_when_scan_active(monkeypatch, update_client):

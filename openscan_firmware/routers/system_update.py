@@ -60,9 +60,9 @@ class UpdateStatusResponse(BaseModel):
 
 
 class UpdateInstallResponse(BaseModel):
-    """Result of a synchronous user-requested update installation."""
+    """Acceptance or result of a user-requested update installation."""
 
-    status: Literal["completed", "install_failed", "install_blocked"]
+    status: Literal["installing", "completed", "install_failed", "install_blocked"]
     reboot_required: bool
 
 @router.get("/status", response_model=UpdateStatusResponse)

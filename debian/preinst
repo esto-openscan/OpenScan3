@@ -10,8 +10,6 @@ record_service_state() {
         && systemctl is-active --quiet openscan3.service; then
         install -d -o root -g root -m 0755 "$SERVICE_STATE_DIR"
         : > "$SERVICE_WAS_ACTIVE_FILE"
-    else
-        rm -f "$SERVICE_WAS_ACTIVE_FILE"
     fi
 }
 
