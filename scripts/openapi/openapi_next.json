@@ -124,10 +124,19 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
+            "description": "A JPEG snapshot or an MJPEG stream, depending on `mode`.",
             "content": {
-              "application/json": {
-                "schema": {}
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "multipart/x-mixed-replace": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
               }
             }
           },
@@ -195,10 +204,54 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
+            "description": "The requested photo bytes, or metadata with a payload URL when `with_metadata=true`.",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PhotoMetadataResponse"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/x-adobe-dng": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/x-canon-cr2": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/x-canon-cr3": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/x-canon-crw": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/x-npy": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
               }
             }
           },
@@ -247,10 +300,49 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
+            "description": "The cached photo payload bytes.",
             "content": {
-              "application/json": {
-                "schema": {}
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/x-adobe-dng": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/x-canon-cr2": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/x-canon-cr3": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/x-canon-crw": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/x-npy": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
               }
             }
           },
@@ -1893,10 +1985,13 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
+            "description": "The project thumbnail as a JPEG file.",
             "content": {
-              "application/json": {
-                "schema": {}
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
               }
             }
           },
@@ -2182,11 +2277,17 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
+            "description": "Photo metadata and data, or the raw file when `file_only=true`.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PhotoResponse"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
                 }
               }
             }
@@ -2641,10 +2742,13 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
+            "description": "A ZIP stream containing the requested project files.",
             "content": {
-              "application/json": {
-                "schema": {}
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
               }
             }
           },
@@ -2685,10 +2789,13 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
+            "description": "A ZIP stream containing the reconstructed project model.",
             "content": {
-              "application/json": {
-                "schema": {}
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
               }
             }
           },
@@ -2753,10 +2860,13 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
+            "description": "A ZIP stream containing the requested scans.",
             "content": {
-              "application/json": {
-                "schema": {}
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
               }
             }
           },
@@ -2807,7 +2917,7 @@
           "openscan"
         ],
         "summary": "Tail Logs",
-        "description": "Show or follow current logs.\n\nWhen follow=false (default), returns the last N lines of the selected log.\nWhen follow=true (text mode only!), streams new lines as they are written (like `tail -f`).\n\nArgs:\n    format: \"text\" for openscan_firmware.log, \"json\" for openscan_detailed_log.json.\n    lines: Number of last lines to return initially.\n    follow: If true, stream appended log lines in text mode.\n    poll_interval: Poll interval (seconds) when following in text mode.\n\nReturns:\n    A response with the requested log content.",
+        "description": "Show or follow current logs.\n\nWhen follow=false (default), returns the last N lines of the selected log.\nWhen follow=true (text mode only!), streams new lines as they are written (like `tail -f`).\n\nArgs:\n    format: \"text\" for openscan_firmware.log, \"json\" for JSON Lines from openscan_detailed_log.json.\n    lines: Number of last lines to return initially.\n    follow: If true, stream appended log lines in text mode.\n    poll_interval: Poll interval (seconds) when following in text mode.\n\nReturns:\n    A response with the requested log content.",
         "operationId": "tail_logs",
         "parameters": [
           {
@@ -2853,10 +2963,17 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
+            "description": "Plain-text log output, or JSON Lines when `format=json`.",
             "content": {
-              "application/json": {
-                "schema": {}
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/x-ndjson": {
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -5351,6 +5468,30 @@
         ],
         "title": "Body_move_motor_by_degree_motors__motor_name__angle_patch"
       },
+      "CameraMetadata": {
+        "properties": {
+          "camera_name": {
+            "type": "string",
+            "title": "Camera Name"
+          },
+          "camera_settings": {
+            "$ref": "#/components/schemas/CameraSettings"
+          },
+          "raw_metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Raw Metadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "camera_name",
+          "camera_settings",
+          "raw_metadata"
+        ],
+        "title": "CameraMetadata",
+        "description": "Represents metadata from a camera."
+      },
       "CameraSettings": {
         "properties": {
           "shutter": {
@@ -6785,6 +6926,60 @@
         ],
         "title": "PersistedEndstopConfig"
       },
+      "PhotoMetadataResponse": {
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": [
+              "jpeg",
+              "raw",
+              "dng",
+              "rgb_array",
+              "yuv_array"
+            ],
+            "title": "Format"
+          },
+          "media_type": {
+            "type": "string",
+            "title": "Media Type"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "camera_metadata": {
+            "$ref": "#/components/schemas/CameraMetadata"
+          },
+          "scan_metadata": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScanMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "payload_url": {
+            "type": "string",
+            "title": "Payload Url"
+          },
+          "expires_in_s": {
+            "type": "integer",
+            "title": "Expires In S"
+          }
+        },
+        "type": "object",
+        "required": [
+          "format",
+          "media_type",
+          "filename",
+          "camera_metadata",
+          "payload_url",
+          "expires_in_s"
+        ],
+        "title": "PhotoMetadataResponse"
+      },
       "PhotoResponse": {
         "properties": {
           "project_name": {
@@ -7063,6 +7258,61 @@
         ],
         "title": "Scan",
         "description": "Represents a single scan session within a project."
+      },
+      "ScanMetadata": {
+        "properties": {
+          "step": {
+            "type": "integer",
+            "title": "Step",
+            "description": "The sequential index of the photo within the scan."
+          },
+          "polar_coordinates": {
+            "$ref": "#/components/schemas/PolarPoint3D",
+            "description": "The polar coordinates of the camera when the photo was taken."
+          },
+          "project_name": {
+            "type": "string",
+            "title": "Project Name",
+            "description": "The name of the project this scan belongs to."
+          },
+          "scan_index": {
+            "type": "integer",
+            "title": "Scan Index",
+            "description": "The sequential index of the scan within the project."
+          },
+          "stack_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stack Index",
+            "description": "The sequential index of the photo within the focus stack."
+          },
+          "cart_coordinates": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CartesianPoint3D"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cartesian coordinates, derived from polar_coordinates."
+          }
+        },
+        "type": "object",
+        "required": [
+          "step",
+          "polar_coordinates",
+          "project_name",
+          "scan_index"
+        ],
+        "title": "ScanMetadata",
+        "description": "Represents metadata from a scan for a photo."
       },
       "ScanSetting": {
         "properties": {
@@ -7753,6 +8003,7 @@
           "status": {
             "type": "string",
             "enum": [
+              "installing",
               "completed",
               "install_failed",
               "install_blocked"

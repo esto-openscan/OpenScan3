@@ -181,7 +181,19 @@ async def _follow_file(file_path: str, poll_interval: float = 1) -> AsyncGenerat
         raise HTTPException(status_code=404, detail="Log file not found")
 
 
-@router.get("/logs/tail")
+@router.get(
+    "/logs/tail",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "description": "Plain-text log output, or JSON Lines when `format=json`.",
+            "content": {
+                "text/plain": {"schema": {"type": "string"}},
+                "application/x-ndjson": {"schema": {"type": "string"}},
+            },
+        }
+    },
+)
 async def tail_logs(format: str = "text", lines: int = 200, follow: bool = False, poll_interval: float = 1):
     """Show or follow current logs.
 
@@ -189,7 +201,7 @@ async def tail_logs(format: str = "text", lines: int = 200, follow: bool = False
     When follow=true (text mode only!), streams new lines as they are written (like `tail -f`).
 
     Args:
-        format: "text" for openscan_firmware.log, "json" for openscan_detailed_log.json.
+        format: "text" for openscan_firmware.log, "json" for JSON Lines from openscan_detailed_log.json.
         lines: Number of last lines to return initially.
         follow: If true, stream appended log lines in text mode.
         poll_interval: Poll interval (seconds) when following in text mode.
@@ -201,7 +213,7 @@ async def tail_logs(format: str = "text", lines: int = 200, follow: bool = False
 
     if format.lower() == "json":
         log_file = os.path.join(DEFAULT_LOGS_PATH, "openscan_detailed_log.json")
-        media_type = "application/json"
+        media_type = "application/x-ndjson"
     else:
         log_file = os.path.join(DEFAULT_LOGS_PATH, "openscan_firmware.log")
         media_type = "text/plain"
