@@ -3054,7 +3054,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AvailableConfigsResponse"
+                }
               }
             }
           },
@@ -5418,6 +5420,78 @@
           "blue_gain"
         ],
         "title": "AutoCalibrateAwbResponse"
+      },
+      "AvailableConfigResponse": {
+        "properties": {
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "shield": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shield"
+          }
+        },
+        "type": "object",
+        "required": [
+          "filename",
+          "path"
+        ],
+        "title": "AvailableConfigResponse"
+      },
+      "AvailableConfigsResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "configs": {
+            "items": {
+              "$ref": "#/components/schemas/AvailableConfigResponse"
+            },
+            "type": "array",
+            "title": "Configs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "configs"
+        ],
+        "title": "AvailableConfigsResponse"
       },
       "Body_add_config_json_device_configurations__post": {
         "properties": {

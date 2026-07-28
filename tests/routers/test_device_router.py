@@ -134,6 +134,18 @@ def test_get_current_config_returns_payload(monkeypatch, tmp_path, device_client
     assert payload["config"] == config_payload
 
 
+def test_list_config_files_has_typed_openapi_response(device_client):
+    schema = device_client.get("/openapi.json").json()
+    response_schema = schema["paths"]["/latest/device/configurations"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+
+    assert response_schema == {"$ref": "#/components/schemas/AvailableConfigsResponse"}
+    assert schema["components"]["schemas"]["AvailableConfigsResponse"]["properties"]["configs"] == {
+        "items": {"$ref": "#/components/schemas/AvailableConfigResponse"},
+        "title": "Configs",
+        "type": "array",
+    }
+
+
 def test_get_named_config_reads_disk(monkeypatch, tmp_path, device_client, device_router_path):
     module_path = device_router_path("device")
 
