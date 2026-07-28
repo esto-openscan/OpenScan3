@@ -242,7 +242,18 @@ async def tail_logs(format: str = "text", lines: int = 200, follow: bool = False
     return StreamingResponse(iter([content.encode("utf-8")]), media_type=media_type)
 
 
-@router.get("/logs/archive")
+@router.get(
+    "/logs/archive",
+    response_class=FileResponse,
+    responses={
+        200: {
+            "description": "ZIP archive containing the available log files.",
+            "content": {
+                "application/zip": {"schema": {"type": "string", "format": "binary"}},
+            },
+        }
+    },
+)
 async def download_logs_archive():
     """Create and download a ZIP archive containing all log files.
 

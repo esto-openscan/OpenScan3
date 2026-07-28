@@ -35,6 +35,7 @@ def test_next_openapi_describes_binary_and_stream_responses() -> None:
         "/projects/{project_name}/zip",
         "/projects/{project_name}/scans/zip",
         "/projects/{project_name}/model/zip",
+        "/logs/archive",
     ):
         _assert_binary(_response_content(schema, path), "application/zip")
 

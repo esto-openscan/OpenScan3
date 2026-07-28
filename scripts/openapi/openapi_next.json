@@ -3003,10 +3003,13 @@
         "operationId": "download_logs_archive",
         "responses": {
           "200": {
-            "description": "Successful Response",
+            "description": "ZIP archive containing the available log files.",
             "content": {
-              "application/json": {
-                "schema": {}
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
               }
             }
           },
