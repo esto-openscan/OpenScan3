@@ -57,6 +57,19 @@ class DeviceConfigResponse(BaseModel):
     config: dict[str, Any]
 
 
+class AvailableConfigResponse(BaseModel):
+    filename: str
+    path: str
+    name: str | None = None
+    model: str | None = None
+    shield: str | None = None
+
+
+class AvailableConfigsResponse(BaseModel):
+    status: str
+    configs: list[AvailableConfigResponse]
+
+
 def _runtime_status_response() -> DeviceStatusResponse:
     raw_info = device.get_device_info()
     logger.debug("Device info payload before validation: %s", raw_info)
@@ -104,7 +117,7 @@ async def get_device_info():
         raise HTTPException(status_code=500, detail=f"Error getting device info: {str(e)}")
 
 
-@router.get("/configurations")
+@router.get("/configurations", response_model=AvailableConfigsResponse)
 async def list_config_files():
     """List all available device configuration files"""
     try:

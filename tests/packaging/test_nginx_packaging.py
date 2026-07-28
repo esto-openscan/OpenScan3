@@ -59,6 +59,7 @@ def test_firmware_service_upgrade_restart_is_stateful() -> None:
     assert "systemctl start openscan3.service || true" in postinst
     assert "systemctl restart openscan3.service" in postinst
     assert "systemctl try-restart openscan3.service || true" in postinst
+    assert 'rm -f "$SERVICE_WAS_ACTIVE_FILE"' not in preinst
 
 
 def test_packaged_service_uses_current_release_without_reload_supervisor() -> None:

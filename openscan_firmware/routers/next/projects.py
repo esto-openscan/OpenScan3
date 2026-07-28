@@ -32,6 +32,7 @@ router = APIRouter(
 
 logger = logging.getLogger(__name__)
 STACKED_PHOTO_SUFFIXES = {".jpg", ".jpeg"}
+_BINARY_SCHEMA = {"type": "string", "format": "binary"}
 
 class DeleteResponse(BaseModel):
     success: bool
@@ -47,6 +48,20 @@ class PhotoResponse(BaseModel):
     size_bytes: int
     metadata: Optional[dict[str, Any]] = None
     photo_data: bytes
+
+
+class ProjectCreateRequest(BaseModel):
+    """JSON payload for creating a project."""
+
+    project_description: str = ""
+
+
+class ScanCreateRequest(BaseModel):
+    """JSON payload for adding and starting a scan."""
+
+    camera_name: str
+    scan_settings: ScanSetting
+    scan_description: str = ""
 
 
 @router.get("/", response_model=dict[str, Project])
@@ -77,7 +92,16 @@ async def get_project(project_name: str):
     return project
 
 
-@router.get("/{project_name}/thumbnail")
+@router.get(
+    "/{project_name}/thumbnail",
+    response_class=FileResponse,
+    responses={
+        200: {
+            "description": "The project thumbnail as a JPEG file.",
+            "content": {"image/jpeg": {"schema": _BINARY_SCHEMA}},
+        }
+    },
+)
 async def get_project_thumbnail(project_name: str):
     project_manager = get_project_manager()
     project = project_manager.get_project_by_name(project_name)
@@ -92,44 +116,47 @@ async def get_project_thumbnail(project_name: str):
 
 
 @router.post("/{project_name}", response_model=Project)
-async def new_project(project_name: str, project_description: Optional[str] = ""):
+async def new_project(project_name: str, request: ProjectCreateRequest):
     """Create a new project
 
     Args:
         project_name: The name of the project to create
-        project_description: Optional description for the project
+        request: JSON payload containing the optional project description
 
     Returns:
         Project: The newly created project if successful, None if not
     """
     try:
         project_manager = get_project_manager()
-        return project_manager.add_project(project_name, project_description)
+        return project_manager.add_project(project_name, request.project_description)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/{project_name}/scan", response_model=Task)
-async def add_scan_with_description(project_name: str,
-                   camera_name: str,
-                   scan_settings: ScanSetting,
-                   scan_description:  Optional[str] = "") -> Task:
+async def add_scan(
+    project_name: str,
+    request: ScanCreateRequest,
+) -> Task:
     """Add a new scan to a project and return the created Task
 
     Args:
         project_name: The name of the project to add the scan to
-        camera_name: The name of the camera to use for the scan
-        scan_settings: The settings for the scan
-        scan_description: Optional description for the scan
+        request: JSON payload containing the camera, scan settings, and optional description
 
     Returns:
         Task: The Task representing the started scan
     """
-    camera_controller = get_camera_controller(camera_name)
+    camera_controller = get_camera_controller(request.camera_name)
     project_manager = get_project_manager()
 
     try:
-        scan = project_manager.add_scan(project_name, camera_controller, scan_settings, scan_description)
+        scan = project_manager.add_scan(
+            project_name,
+            camera_controller,
+            request.scan_settings,
+            request.scan_description,
+        )
         task = await scans.start_scan(project_manager, scan, camera_controller)
         return task
 
@@ -226,7 +253,16 @@ async def delete_project(project_name: str):
     )
 
 
-@router.get("/{project_name}/{scan_index:int}/photo", response_model=PhotoResponse)
+@router.get(
+    "/{project_name}/{scan_index:int}/photo",
+    responses={
+        200: {
+            "model": PhotoResponse,
+            "description": "Photo metadata and data, or the raw file when `file_only=true`.",
+            "content": {"application/octet-stream": {"schema": _BINARY_SCHEMA}},
+        }
+    },
+)
 async def get_scan_photo(
     project_name: str,
     scan_index: int,
@@ -593,7 +629,16 @@ def _add_project_to_zip_with_strategy(
     return added
 
 
-@router.get("/{project_name}/zip")
+@router.get(
+    "/{project_name}/zip",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "description": "A ZIP stream containing the requested project files.",
+            "content": {"application/zip": {"schema": _BINARY_SCHEMA}},
+        }
+    },
+)
 async def download_project(
     project_name: str,
     photos_only: bool = Query(
@@ -677,7 +722,16 @@ async def download_project(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{project_name}/model/zip")
+@router.get(
+    "/{project_name}/model/zip",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "description": "A ZIP stream containing the reconstructed project model.",
+            "content": {"application/zip": {"schema": _BINARY_SCHEMA}},
+        }
+    },
+)
 async def download_project_model(project_name: str):
     """Download the reconstructed model directory of a project as a ZIP file."""
 
@@ -716,7 +770,16 @@ async def download_project_model(project_name: str):
     )
 
 
-@router.get("/{project_name}/scans/zip")
+@router.get(
+    "/{project_name}/scans/zip",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "description": "A ZIP stream containing the requested scans.",
+            "content": {"application/zip": {"schema": _BINARY_SCHEMA}},
+        }
+    },
+)
 async def download_scans(
     project_name: str,
     scan_indices: List[int] = Query(None),
