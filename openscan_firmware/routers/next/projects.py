@@ -50,6 +50,20 @@ class PhotoResponse(BaseModel):
     photo_data: bytes
 
 
+class ProjectCreateRequest(BaseModel):
+    """JSON payload for creating a project."""
+
+    project_description: str = ""
+
+
+class ScanCreateRequest(BaseModel):
+    """JSON payload for adding and starting a scan."""
+
+    camera_name: str
+    scan_settings: ScanSetting
+    scan_description: str = ""
+
+
 @router.get("/", response_model=dict[str, Project])
 async def get_projects():
     """Get all projects with serialized data
@@ -102,44 +116,47 @@ async def get_project_thumbnail(project_name: str):
 
 
 @router.post("/{project_name}", response_model=Project)
-async def new_project(project_name: str, project_description: Optional[str] = ""):
+async def new_project(project_name: str, request: ProjectCreateRequest):
     """Create a new project
 
     Args:
         project_name: The name of the project to create
-        project_description: Optional description for the project
+        request: JSON payload containing the optional project description
 
     Returns:
         Project: The newly created project if successful, None if not
     """
     try:
         project_manager = get_project_manager()
-        return project_manager.add_project(project_name, project_description)
+        return project_manager.add_project(project_name, request.project_description)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/{project_name}/scan", response_model=Task)
-async def add_scan_with_description(project_name: str,
-                   camera_name: str,
-                   scan_settings: ScanSetting,
-                   scan_description:  Optional[str] = "") -> Task:
+async def add_scan(
+    project_name: str,
+    request: ScanCreateRequest,
+) -> Task:
     """Add a new scan to a project and return the created Task
 
     Args:
         project_name: The name of the project to add the scan to
-        camera_name: The name of the camera to use for the scan
-        scan_settings: The settings for the scan
-        scan_description: Optional description for the scan
+        request: JSON payload containing the camera, scan settings, and optional description
 
     Returns:
         Task: The Task representing the started scan
     """
-    camera_controller = get_camera_controller(camera_name)
+    camera_controller = get_camera_controller(request.camera_name)
     project_manager = get_project_manager()
 
     try:
-        scan = project_manager.add_scan(project_name, camera_controller, scan_settings, scan_description)
+        scan = project_manager.add_scan(
+            project_name,
+            camera_controller,
+            request.scan_settings,
+            request.scan_description,
+        )
         task = await scans.start_scan(project_manager, scan, camera_controller)
         return task
 

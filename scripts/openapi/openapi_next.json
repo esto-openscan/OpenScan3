@@ -1864,7 +1864,7 @@
           "projects"
         ],
         "summary": "New Project",
-        "description": "Create a new project\n\nArgs:\n    project_name: The name of the project to create\n    project_description: Optional description for the project\n\nReturns:\n    Project: The newly created project if successful, None if not",
+        "description": "Create a new project\n\nArgs:\n    project_name: The name of the project to create\n    request: JSON payload containing the optional project description\n\nReturns:\n    Project: The newly created project if successful, None if not",
         "operationId": "new_project",
         "parameters": [
           {
@@ -1875,25 +1875,18 @@
               "type": "string",
               "title": "Project Name"
             }
-          },
-          {
-            "name": "project_description",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": "",
-              "title": "Project Description"
-            }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectCreateRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -2016,9 +2009,9 @@
         "tags": [
           "projects"
         ],
-        "summary": "Add Scan With Description",
-        "description": "Add a new scan to a project and return the created Task\n\nArgs:\n    project_name: The name of the project to add the scan to\n    camera_name: The name of the camera to use for the scan\n    scan_settings: The settings for the scan\n    scan_description: Optional description for the scan\n\nReturns:\n    Task: The Task representing the started scan",
-        "operationId": "add_scan_with_description",
+        "summary": "Add Scan",
+        "description": "Add a new scan to a project and return the created Task\n\nArgs:\n    project_name: The name of the project to add the scan to\n    request: JSON payload containing the camera, scan settings, and optional description\n\nReturns:\n    Task: The Task representing the started scan",
+        "operationId": "add_scan",
         "parameters": [
           {
             "name": "project_name",
@@ -2028,32 +2021,6 @@
               "type": "string",
               "title": "Project Name"
             }
-          },
-          {
-            "name": "camera_name",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Camera Name"
-            }
-          },
-          {
-            "name": "scan_description",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": "",
-              "title": "Scan Description"
-            }
           }
         ],
         "requestBody": {
@@ -2061,7 +2028,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ScanSetting"
+                "$ref": "#/components/schemas/ScanCreateRequest"
               }
             }
           }
@@ -7203,6 +7170,18 @@
         "title": "Project",
         "description": "Represents a scan project stored on disk and optionally processed in the cloud."
       },
+      "ProjectCreateRequest": {
+        "properties": {
+          "project_description": {
+            "type": "string",
+            "title": "Project Description",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "ProjectCreateRequest",
+        "description": "JSON payload for creating a project."
+      },
       "Scan": {
         "properties": {
           "project_name": {
@@ -7335,6 +7314,29 @@
         ],
         "title": "Scan",
         "description": "Represents a single scan session within a project."
+      },
+      "ScanCreateRequest": {
+        "properties": {
+          "camera_name": {
+            "type": "string",
+            "title": "Camera Name"
+          },
+          "scan_settings": {
+            "$ref": "#/components/schemas/ScanSetting"
+          },
+          "scan_description": {
+            "type": "string",
+            "title": "Scan Description",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "camera_name",
+          "scan_settings"
+        ],
+        "title": "ScanCreateRequest",
+        "description": "JSON payload for adding and starting a scan."
       },
       "ScanMetadata": {
         "properties": {
