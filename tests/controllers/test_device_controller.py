@@ -75,6 +75,39 @@ def device_module(monkeypatch):
     return _import_device(monkeypatch)
 
 
+def test_detect_cameras_skips_pi_internal_v4l2_pipeline_devices(monkeypatch):
+    device = _import_device(monkeypatch)
+
+    class DummyVideoDevice:
+        def __init__(self, card, filename):
+            self.info = types.SimpleNamespace(card=card)
+            self.filename = filename
+            self.closed = False
+
+        def open(self):
+            pass
+
+        def close(self):
+            self.closed = True
+
+    devices = [
+        DummyVideoDevice("rp1-cfe", "/dev/video0"),
+        DummyVideoDevice("pispbe", "/dev/video20"),
+        DummyVideoDevice("USB Camera", "/dev/video42"),
+    ]
+
+    monkeypatch.setattr(device, "iter_video_capture_devices", lambda: devices, raising=True)
+    monkeypatch.setattr(device, "is_camera_type_available", lambda camera_type: False, raising=True)
+
+    detected = device._detect_cameras()
+
+    assert "rp1-cfe" not in detected
+    assert "pispbe" not in detected
+    assert detected["USB Camera"].type == device.CameraType.LINUXPY
+    assert detected["USB Camera"].path == "/dev/video42"
+    assert all(video_device.closed for video_device in devices)
+
+
 def test_save_device_config_writes_json(tmp_path, monkeypatch,
                                         motor_model_instance,
                                         light_model_instance,

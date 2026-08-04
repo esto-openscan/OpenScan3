@@ -442,7 +442,7 @@ class ScanTask(BaseTask):
 
             if not self._ctx.focus_context or not self._ctx.focus_context["enabled"]:
                 # Single photo capture
-                photo_data = self._ctx.camera_controller.photo(
+                photo_data = await self._ctx.camera_controller.photo_async(
                     self._ctx.scan.settings.image_format
                 )
                 photo_data.scan_metadata = ScanMetadata(
@@ -452,9 +452,9 @@ class ScanTask(BaseTask):
                     scan_index=self._ctx.scan.index,
                 )
 
-                asyncio.create_task(self._ctx.project_manager.add_photo_async(photo_data))
-                # Needed so the event loop can process pause/cancel signals between captures:
-                await asyncio.sleep(0)
+                # Await the save so executor-backed file/metadata work cannot overlap with the
+                # next software-timed motor move and disturb GPIO step timing.
+                await self._ctx.project_manager.add_photo_async(photo_data)
             else:
                 # Focus stacking capture
                 focus_positions = self._ctx.focus_context["positions"]
@@ -488,9 +488,8 @@ class ScanTask(BaseTask):
                         stack_index=stack_index,
                     )
 
-                    asyncio.create_task(self._ctx.project_manager.add_photo_async(photo_data))
-                    # Let the event loop handle pause/cancel requests between focus captures
-                    await asyncio.sleep(0)
+                    # Keep save work serialized with captures/moves; see single-photo path above.
+                    await self._ctx.project_manager.add_photo_async(photo_data)
 
         except Exception as e:
             logger.error("Error taking photo at position %s: %s", index, e, exc_info=True)

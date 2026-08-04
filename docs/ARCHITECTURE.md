@@ -62,7 +62,7 @@ OpenScan3 uses a centralized background task system to coordinate long-running a
 During application startup (see `openscan_firmware/main.py` in the FastAPI lifespan handler):
 
 1. Logging and device initialization are performed.
-2. `TaskManager.initialize_core_tasks()` enforces the core task set. With `OPENSCAN_TASK_AUTODISCOVERY=1`, it runs discovery inside the default namespaces; otherwise it registers the built-in core implementations manually.
+2. `TaskManager.initialize_core_tasks()` loads the classes from the static core task registry. With `OPENSCAN_TASK_AUTODISCOVERY=1`, it runs discovery and validates every registry entry; otherwise it registers every built-in class explicitly.
 3. After initialization, `TaskManager.restore_tasks_from_persistence()` recovers previously persisted tasks.
 
 ### Task Discovery and Structure
@@ -102,3 +102,10 @@ Client guidance:
 
 - Prefer `/latest/...` to always track the current stable API.
 - Pin to `/vX.Y/...` if you need strict compatibility.
+
+## System Update API
+
+The firmware backend exposes update-related routes through a narrow wrapper
+around `sudo /usr/bin/openscan-updater` and keeps APT/package policy inside the
+updater package. See [docs/SYSTEM_UPDATE_API.md](./SYSTEM_UPDATE_API.md) for the
+endpoint list, safety model, and deployment notes.

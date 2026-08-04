@@ -6,7 +6,9 @@ These may be removed or changed at any time.
 
 import base64
 import json
+import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Literal
@@ -14,6 +16,11 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, status, Response, Query
 from fastapi.responses import PlainTextResponse
 
+from openscan_firmware.controllers.hardware.cameras.camera import (
+    create_camera_controller,
+    get_all_camera_controllers,
+    remove_camera_controller,
+)
 from openscan_firmware.controllers.services.tasks.task_manager import get_task_manager
 from openscan_firmware.models.task import TaskStatus, Task
 
@@ -23,7 +30,7 @@ from openscan_firmware.controllers.hardware.motors import move_to_point
 from openscan_firmware.utils.paths import paths
 from openscan_firmware.cli import DEFAULT_RELOAD_TRIGGER
 
-CAMERA_REPORT_SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "camera_report.sh"
+CAMERA_REPORT_SCRIPT = Path(__file__).resolve().parents[2] / "utils" / "camera_report.sh"
 
 
 router = APIRouter(
@@ -31,6 +38,51 @@ router = APIRouter(
     tags=["develop"],
     responses={404: {"description": "Not found"}},
 )
+
+
+def _release_camera_controllers_for_report() -> tuple[list, dict]:
+    """Release OpenScan-owned cameras so external rpicam/libcamera probes can acquire them."""
+    controllers = get_all_camera_controllers()
+    busy = [
+        name
+        for name, controller in controllers.items()
+        if callable(getattr(controller, "is_busy", None)) and controller.is_busy()
+    ]
+    if busy:
+        return [], {
+            "released": False,
+            "reason": "camera busy",
+            "busy_cameras": busy,
+            "cameras": list(controllers.keys()),
+        }
+
+    camera_models = [controller.camera for controller in controllers.values()]
+    released: list[str] = []
+    errors: list[dict] = []
+    for name in list(controllers.keys()):
+        try:
+            if remove_camera_controller(name):
+                released.append(name)
+        except Exception as exc:
+            errors.append({"camera": name, "error": str(exc)})
+
+    return camera_models, {
+        "released": bool(released),
+        "cameras": released,
+        "errors": errors,
+    }
+
+
+def _restore_camera_controllers_after_report(camera_models: list) -> dict:
+    restored: list[str] = []
+    errors: list[dict] = []
+    for camera in camera_models:
+        try:
+            create_camera_controller(camera)
+            restored.append(camera.name)
+        except Exception as exc:
+            errors.append({"camera": camera.name, "error": str(exc)})
+    return {"restored": restored, "errors": errors}
 
 
 def _gp_text(value) -> str:  # noqa: ANN001
@@ -241,6 +293,10 @@ async def restart_application() -> dict[str, str]:
 @router.get("/camera-report")
 async def get_camera_report(
     format: Literal["json", "text"] = Query(default="json"),
+    release_cameras: bool = Query(
+        default=True,
+        description="Temporarily release OpenScan camera controllers so rpicam/libcamera probes can acquire cameras.",
+    ),
 ):
     """Run the camera diagnostics script and return a bundled report."""
     if not CAMERA_REPORT_SCRIPT.exists():
@@ -249,21 +305,36 @@ async def get_camera_report(
             detail=f"Camera report script not found: {CAMERA_REPORT_SCRIPT}",
         )
 
-    result = subprocess.run(
-        ["bash", str(CAMERA_REPORT_SCRIPT)],
-        capture_output=True,
-        text=True,
-        timeout=180,
-        check=False,
-    )
+    camera_models: list = []
+    camera_release = {"released": False, "reason": "disabled"}
+    camera_restore = {"restored": [], "errors": []}
+    if release_cameras:
+        camera_models, camera_release = _release_camera_controllers_for_report()
+
+    try:
+        result = subprocess.run(
+            ["bash", str(CAMERA_REPORT_SCRIPT)],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+            env={**os.environ, "OPENSCAN_REPORT_PYTHON": sys.executable},
+        )
+    finally:
+        if camera_models:
+            camera_restore = _restore_camera_controllers_after_report(camera_models)
     report = result.stdout.strip()
     stderr = result.stderr.strip()
     gphoto2_diag = _collect_gphoto2_diagnostics()
 
     if format == "text":
         text_output = report or stderr or "No output produced."
+        camera_section = "===== OpenScan camera release for external probes =====\n" + json.dumps(
+            {"release": camera_release, "restore": camera_restore},
+            indent=2,
+        )
         gphoto2_section = "===== GPhoto2 python diagnostics =====\n" + json.dumps(gphoto2_diag, indent=2)
-        text_output = f"{text_output}\n\n{gphoto2_section}"
+        text_output = f"{text_output}\n\n{camera_section}\n\n{gphoto2_section}"
         status_code = status.HTTP_200_OK if result.returncode == 0 else status.HTTP_500_INTERNAL_SERVER_ERROR
         return PlainTextResponse(content=text_output, status_code=status_code)
 
@@ -271,6 +342,8 @@ async def get_camera_report(
         "ok": result.returncode == 0,
         "return_code": result.returncode,
         "script": str(CAMERA_REPORT_SCRIPT),
+        "camera_release": camera_release,
+        "camera_restore": camera_restore,
         "report": report,
         "stderr": stderr,
         "gphoto2": gphoto2_diag,
@@ -323,12 +396,11 @@ async def crop_image(camera_name: str, threshold: int | None = Query(default=Non
 
 @router.post("/hello-world-async", response_model=Task)
 async def hello_world_async(total_steps: int, delay: float):
-    """Start the async hello world demo task."""
+    """Start the async hello world progress demo task."""
 
     task_manager = get_task_manager()
 
-    # Updated to explicit task_name with required _task suffix
-    task = await task_manager.create_and_run_task("hello_world_async_task", total_steps=total_steps, delay=delay)
+    task = await task_manager.create_and_run_task("hello_world_progress_task", total_steps=total_steps, interval=delay)
     return task
 
 

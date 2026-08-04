@@ -4,8 +4,6 @@ from pathlib import Path
 from dataclasses import dataclass
 
 import atexit
-import signal
-import sys
 
 @dataclass
 class _HwPWM:
@@ -21,11 +19,10 @@ class _HwPWM:
 
     _pins = {}
 
-    # register cleanup at exit
+    # Register an atexit fallback only. Do not install process-global signal
+    # handlers here; uvicorn/systemd need SIGTERM/SIGINT for graceful shutdown.
     def __init__(self):
         atexit.register(_HwPWM._cleanup)
-        signal.signal(signal.SIGTERM, _HwPWM._signal_handler)
-        signal.signal(signal.SIGINT, _HwPWM._signal_handler)    
 
     @staticmethod
     def _run(cmd):
@@ -190,9 +187,6 @@ class _HwPWM:
             to_clean.append(pin)
         for pin in to_clean:
             _HwPWM.release(pin)
-
-    def _signal_handler(signum, frame):
-        _HwPWM._cleanup()
 
 
 # ==========================================================

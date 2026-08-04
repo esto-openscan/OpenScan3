@@ -99,3 +99,43 @@ def test_configure_focus_sets_default_manual_focus(monkeypatch):
     assert controller._picam.controls == [
         {"AfMode": module.controls.AfModeEnum.Manual, "LensPosition": 1.0}
     ]
+
+
+def test_configure_cropping_preserves_noise_reduction_controls(monkeypatch):
+    module = _import_picamera2_module(monkeypatch)
+
+    class _FakeStrategy:
+        def __init__(self):
+            self.photo_controls = None
+            self.raw_controls = None
+
+        def create_photo_config(self, _picam, _resolution, controls):
+            self.photo_controls = controls
+            return {"photo": controls}
+
+        def create_raw_config(self, _picam, _resolution, controls):
+            self.raw_controls = controls
+            return {"raw": controls}
+
+    strategy = _FakeStrategy()
+    controller = object.__new__(module.Picamera2Controller)
+    controller.settings = CameraSettings(crop_width=10, crop_height=20, orientation_flag=1)
+    controller.camera = types.SimpleNamespace(settings=controller.settings)
+    controller._picam = _FakePicam()
+    controller._strategy = strategy
+    controller._photogrammetry_settings = {
+        "AeEnable": False,
+        "NoiseReductionMode": 0,
+        "AwbEnable": False,
+    }
+
+    crop = controller._configure_cropping_for_scalercrop()
+
+    assert crop == (10, 10, 180, 80)
+    assert strategy.photo_controls == {
+        "AeEnable": False,
+        "NoiseReductionMode": 0,
+        "AwbEnable": False,
+        "ScalerCrop": crop,
+    }
+    assert strategy.raw_controls == strategy.photo_controls

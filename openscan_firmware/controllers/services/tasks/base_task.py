@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Coroutine
-from openscan_firmware.models.task import Task, TaskStatus, TaskProgress
+from typing import Any, ClassVar
+
+from openscan_firmware.models.task import Task
 
 logger = logging.getLogger(__name__)
+
 
 class BaseTask(ABC):
     """
@@ -16,14 +18,19 @@ class BaseTask(ABC):
     Each task should inherit from this class and implement the `run` method.
 
     Attributes:
-        is_exclusive (bool): If True, this task cannot run concurrently with any other tasks.
-        is_blocking (bool): If True, the `run` method is a standard synchronous function
+        task_name: Optional registry name used by autodiscovery. Manually registered
+            tasks can still receive their name from TaskManager.register_task().
+        task_category: Optional grouping label used for discovered task classes.
+        is_exclusive: If True, this task cannot run concurrently with any other tasks.
+        is_blocking: If True, the `run` method is a standard synchronous function
             that will be executed in a separate thread to avoid blocking the main
             asyncio event loop. If False (default), `run` must be an async method.
     """
 
-    is_exclusive: bool = False
-    is_blocking: bool = False
+    task_name: ClassVar[str | None] = None
+    task_category: ClassVar[str] = "community"
+    is_exclusive: ClassVar[bool] = False
+    is_blocking: ClassVar[bool] = False
 
     def __init__(self, task_model: Task):
         """

@@ -225,6 +225,7 @@ class Picamera2Controller(CameraController):
         if additional_settings is not None:
             photogrammetry_settings.update(additional_settings)
 
+        self._photogrammetry_settings = photogrammetry_settings.copy()
         self.preview_config = self._strategy.create_preview_config(self._picam, self.settings.preview_resolution, photogrammetry_settings)
         self.photo_config = self._strategy.create_photo_config(self._picam, self.settings.photo_resolution, photogrammetry_settings)
         self.raw_config = self._strategy.create_raw_config(self._picam, self.settings.photo_resolution, photogrammetry_settings)
@@ -268,7 +269,10 @@ class Picamera2Controller(CameraController):
         x_start = (full_x - width) // 2
         y_start = (full_y - height) // 2
 
-        update_controls = {"ScalerCrop": (x_start, y_start, width, height)}
+        update_controls = {
+            **getattr(self, "_photogrammetry_settings", {}),
+            "ScalerCrop": (x_start, y_start, width, height),
+        }
         logger.debug("Updated ScalerCrop: ", update_controls)
         self.photo_config = self._strategy.create_photo_config(self._picam, (width, height), update_controls)
         self.raw_config = self._strategy.create_raw_config(self._picam, (width, height), update_controls)

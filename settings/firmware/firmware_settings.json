@@ -1,4 +1,5 @@
 {
     "qr_wifi_scan_enabled": true,
-    "enable_cloud": false
+    "enable_cloud": false,
+    "camera_preview_enabled": true
 }

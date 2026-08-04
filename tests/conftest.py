@@ -240,10 +240,9 @@ async def focus_task_manager():
 
     from openscan_firmware.controllers.services.tasks.examples import demo_examples
 
-    task_manager.register_task("hello_world_async_task", demo_examples.HelloWorldAsyncTask)
+    task_manager.register_task("hello_world_progress_task", demo_examples.HelloWorldProgressTask)
     task_manager.register_task("hello_world_blocking_task", demo_examples.HelloWorldBlockingTask)
     task_manager.register_task("exclusive_demo_task", demo_examples.ExclusiveDemoTask)
-    task_manager.register_task("generator_task", demo_examples.ExampleTaskWithGenerator)
     task_manager.register_task("failing_task", demo_examples.FailingTask)
 
     yield task_manager

@@ -11,6 +11,8 @@ from openscan_firmware.config.logger import setup_logging
 from openscan_firmware import __version__
 
 from openscan_firmware.routers import websocket as websocket_router
+from openscan_firmware.routers import system_update as system_update_router
+from openscan_firmware.routers import system_repair as system_repair_router
 from openscan_firmware.routers.v0_8 import (
     cameras as cameras_v0_8,
     motors as motors_v0_8,
@@ -103,15 +105,6 @@ async def _maybe_start_qr_wifi_scan(task_manager) -> None:
         logger.exception("Failed to auto-start QR WiFi scan task.")
 
 
-REQUIRED_CORE_TASKS = [
-    "scan_task",
-    "external_trigger_run_task",
-    "focus_stacking_task",
-    "cloud_upload_task",
-    "cloud_download_task",
-]
-
-
 def _env_flag(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
     if value is None:
@@ -142,7 +135,6 @@ async def lifespan(app: FastAPI):
 
     task_manager.initialize_core_tasks(
         autodiscovery_enabled=autodiscovery_enabled,
-        required_core_tasks=set(REQUIRED_CORE_TASKS),
         override_on_conflict=override_on_conflict,
     )
 
@@ -152,11 +144,19 @@ async def lifespan(app: FastAPI):
     # Auto-start QR WiFi scan if enabled and no network is connected
     await _maybe_start_qr_wifi_scan(task_manager)
 
-    yield  # application runs here
-
-    # Code to run on shutdown
-    device_controller.cleanup_and_exit()
-    logging.shutdown()
+    try:
+        yield  # application runs here
+    finally:
+        logger.info("OpenScan3 service shutdown: starting hardware cleanup.")
+        try:
+            device_controller.cleanup_and_exit()
+        except Exception:
+            logger.exception("OpenScan3 service shutdown: hardware cleanup failed.")
+            raise
+        else:
+            logger.info("OpenScan3 service shutdown: hardware cleanup completed.")
+        finally:
+            logging.shutdown()
 
 
 app = FastAPI(
@@ -199,6 +199,8 @@ next_ROUTERS = [
     motors_next.router,
     lights_next.router,
     firmware_next.router,
+    system_update_router.router,
+    system_repair_router.router,
     projects_next.router,
     openscan_next.router,
     device_next.router,
@@ -217,6 +219,8 @@ v0_9_ROUTERS = [
     motors_v0_9.router,
     lights_v0_9.router,
     firmware_v0_9.router,
+    system_update_router.router,
+    system_repair_router.router,
     projects_v0_9.router,
     gpio_v0_9.router,
     openscan_v0_9.router,
