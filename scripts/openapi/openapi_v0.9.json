@@ -6788,6 +6788,7 @@
           "status": {
             "type": "string",
             "enum": [
+              "installing",
               "completed",
               "install_failed",
               "install_blocked"

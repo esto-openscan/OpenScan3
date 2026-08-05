@@ -37,6 +37,27 @@ _PAYLOAD_TTL_SECONDS = 90
 _MAX_PAYLOAD_CACHE_ENTRIES = 8
 _MAX_PAYLOAD_CACHE_BYTES = 256 * 1024 * 1024
 
+_BINARY_SCHEMA = {"type": "string", "format": "binary"}
+def _photo_binary_content() -> dict[str, dict[str, dict[str, str]]]:
+    """Return a fresh response-content mapping for photo payloads.
+
+    FastAPI merges a response model into the supplied mapping while building
+    OpenAPI. Sharing this mapping between routes would leak that JSON model to
+    the raw-payload endpoint.
+    """
+    return {
+        media_type: {"schema": dict(_BINARY_SCHEMA)}
+        for media_type in (
+            "image/jpeg",
+            "image/x-adobe-dng",
+            "image/x-canon-cr2",
+            "image/x-canon-cr3",
+            "image/x-canon-crw",
+            "application/x-npy",
+            "application/octet-stream",
+        )
+    }
+
 
 @dataclass
 class _CachedPhotoPayload:
@@ -247,7 +268,19 @@ async def get_camera(camera_name: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/{camera_name}/preview")
+@router.get(
+    "/{camera_name}/preview",
+    response_class=Response,
+    responses={
+        200: {
+            "description": "A JPEG snapshot or an MJPEG stream, depending on `mode`.",
+            "content": {
+                "image/jpeg": {"schema": _BINARY_SCHEMA},
+                "multipart/x-mixed-replace": {"schema": _BINARY_SCHEMA},
+            },
+        }
+    },
+)
 async def get_preview(
     camera_name: str,
     mode: str = Query(default="stream", pattern="^(stream|snapshot)$"),
@@ -292,7 +325,16 @@ async def get_preview(
     return StreamingResponse(generate(), media_type="multipart/x-mixed-replace;boundary=frame")
 
 
-@router.get("/{camera_name}/photo")
+@router.get(
+    "/{camera_name}/photo",
+    responses={
+        200: {
+            "model": PhotoMetadataResponse,
+            "description": "The requested photo bytes, or metadata with a payload URL when `with_metadata=true`.",
+            "content": _photo_binary_content(),
+        }
+    },
+)
 async def get_photo(
     camera_name: str,
     request: Request,
@@ -354,7 +396,17 @@ async def get_photo(
     )
 
 
-@router.get("/{camera_name}/photo/payload/{payload_id}", name="get_photo_payload")
+@router.get(
+    "/{camera_name}/photo/payload/{payload_id}",
+    name="get_photo_payload",
+    response_class=Response,
+    responses={
+        200: {
+            "description": "The cached photo payload bytes.",
+            "content": _photo_binary_content(),
+        }
+    },
+)
 async def get_photo_payload(camera_name: str, payload_id: str):
     payload = _get_cached_photo_payload(camera_name=camera_name, payload_id=payload_id)
     return Response(

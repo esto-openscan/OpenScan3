@@ -21,6 +21,7 @@ UPDATER_TIMEOUT_SECONDS: Final = {
     "check_openscan": 90,
     "check_system": 180,
     "update_openscan": 900,
+    "apply_updates": 30,
     "update_system": 1800,
     "repair_openscan3": 1200,
     "healthcheck": 60,
@@ -41,6 +42,7 @@ UPDATER_COMMANDS: Final[dict[str, list[str]]] = {
     "check_openscan": ["sudo", "/usr/bin/openscan-updater", "update", "--dry-run", "--json"],
     "check_system": ["sudo", "/usr/bin/openscan-updater", "system", "check", "--json"],
     "update_openscan": ["sudo", "/usr/bin/openscan-updater", "update", "--json"],
+    "apply_updates": ["sudo", "/usr/bin/openscan-updater", "apply", "--detach", "--json"],
     "update_system": ["sudo", "/usr/bin/openscan-updater", "system", "update", "--json"],
     "repair_openscan3": ["sudo", "/usr/bin/openscan-updater", "repair", "--json"],
     "healthcheck": ["sudo", "/usr/bin/openscan-updater", "healthcheck", "--json"],
@@ -277,22 +279,28 @@ async def run_update_apply() -> tuple[int, dict[str, Any]]:
 
 
 async def run_user_update_apply() -> tuple[int, dict[str, Any]]:
-    """Apply updates while keeping updater implementation details out of the API."""
-    status_code, payload = await run_update_apply()
-    if status_code != 200:
-        return status_code, _public_error("install_failed")
-    if not payload.get("ok"):
-        return 200, {"status": "install_failed", "reboot_required": False}
+    """Schedule the update outside the firmware service cgroup."""
+    if _update_lock.locked():
+        return 409, {"status": "install_blocked", "reboot_required": False}
 
-    result = payload.get("result", {})
-    stages = result.get("stages", {}) if isinstance(result, dict) else {}
-    system = stages.get("system", {}) if isinstance(stages, dict) else {}
-    system_payload = system.get("payload", {}) if isinstance(system, dict) else {}
-    updater_result = system_payload.get("result", {}) if isinstance(system_payload, dict) else {}
-    return 200, {
-        "status": "completed",
-        "reboot_required": bool(updater_result.get("reboot_required")) if isinstance(updater_result, dict) else False,
-    }
+    if is_scan_active():
+        raise UpdateConflictError(
+            "scan_active",
+            "Updates cannot be started while a scan is running.",
+        )
+
+    await _update_lock.acquire()
+    try:
+        status_code, payload = await run_updater_command("apply_updates")
+    finally:
+        _update_lock.release()
+
+    if status_code != 200 or not payload.get("ok"):
+        return 200, {"status": "install_failed", "reboot_required": False}
+    result = payload.get("result")
+    if not isinstance(result, dict) or result.get("status") != "update_scheduled":
+        return 200, {"status": "install_failed", "reboot_required": False}
+    return 200, {"status": "installing", "reboot_required": False}
 
 
 async def run_repair_openscan3() -> tuple[int, dict[str, Any]]:
