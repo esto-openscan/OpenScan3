@@ -306,6 +306,118 @@ class TaskManager:
         """Retrieves the data models for all tasks."""
         return list(self._tasks.values())
 
+    def _validate_dependency(self, task_model: Task) -> None:
+        """Validate that a task dependency exists and does not create a cycle."""
+        dependency_id = task_model.depends_on
+        if dependency_id is None:
+            return
+
+        visited = {task_model.id}
+        current_id: str | None = dependency_id
+        while current_id is not None:
+            if current_id in visited:
+                raise ValueError(f"Task dependency cycle detected for task '{task_model.id}'.")
+
+            dependency = self._tasks.get(current_id)
+            if dependency is None:
+                raise ValueError(f"Dependency task '{current_id}' does not exist.")
+
+            visited.add(current_id)
+            current_id = dependency.depends_on
+
+    def _dependency_status(self, task_model: Task) -> TaskStatus | None:
+        """Return the current status of a task's dependency, if any."""
+        if task_model.depends_on is None:
+            return None
+
+        dependency = self._tasks.get(task_model.depends_on)
+        if dependency is None:
+            return TaskStatus.ERROR
+        return dependency.status
+
+    def _dependencies_satisfied(self, task_model: Task) -> bool:
+        """Return whether the task's dependency has completed successfully."""
+        dependency_status = self._dependency_status(task_model)
+        return dependency_status is None or dependency_status == TaskStatus.COMPLETED
+
+    def _dependency_failed(self, task_model: Task) -> bool:
+        """Return whether the task's dependency reached an unsuccessful terminal state."""
+        dependency_status = self._dependency_status(task_model)
+        return dependency_status in {
+            TaskStatus.ERROR,
+            TaskStatus.CANCELLED,
+            TaskStatus.INTERRUPTED,
+        }
+
+    def _is_task_queued(self, task_id: str) -> bool:
+        """Return whether a task is already present in the scheduler queue."""
+        return any(
+            task_instance.id == task_id
+            for task_instance, _, _ in self._pending_tasks._queue
+        )
+
+    async def _schedule_task_model(self, task_model: Task) -> None:
+        """Schedule a dependency-ready task using the normal scheduler rules."""
+        if not self._dependencies_satisfied(task_model):
+            return
+
+        if task_model.status != TaskStatus.PENDING or self._is_task_queued(task_model.id):
+            return
+
+        task_class = self._task_registry[task_model.name]
+        task_instance = task_class(task_model)
+        task_is_blocking = getattr(task_class, "is_blocking", False)
+
+        should_queue_due_to_pending_exclusive = (
+            not task_model.is_exclusive and self._has_pending_exclusive_task()
+        )
+
+        if (
+            not should_queue_due_to_pending_exclusive
+            and self._can_run_task(task_model.is_exclusive, task_is_blocking)
+        ):
+            logger.info(
+                "Starting task '%s' (%s) immediately.",
+                task_model.name,
+                task_model.id,
+            )
+            self._start_task_execution(
+                task_instance,
+                *task_model.run_args,
+                **task_model.run_kwargs,
+            )
+        else:
+            logger.info("Queueing task '%s' (%s).", task_model.name, task_model.id)
+            await self._pending_tasks.put(
+                (task_instance, task_model.run_args, task_model.run_kwargs)
+            )
+
+    async def _mark_dependency_failed(self, task_model: Task, dependency: Task) -> None:
+        """Complete a waiting task with an error when its dependency failed."""
+        if task_model.status != TaskStatus.PENDING:
+            return
+
+        task_model.status = TaskStatus.ERROR
+        task_model.error = (
+            f"Dependency task '{dependency.id}' finished with status "
+            f"'{dependency.status.value}'."
+        )
+        task_model.completed_at = datetime.now()
+        self._save_task_state(task_model)
+        await task_event_publisher.publish(task_model, TaskEventType.UPDATE)
+        await self._handle_dependency_completion(task_model)
+
+    async def _handle_dependency_completion(self, dependency: Task) -> None:
+        """Release or fail tasks that depend directly on a completed task."""
+        for task_model in list(self._tasks.values()):
+            if task_model.depends_on != dependency.id or task_model.status != TaskStatus.PENDING:
+                continue
+
+            if dependency.status == TaskStatus.COMPLETED:
+                await self._schedule_task_model(task_model)
+            elif self._dependency_failed(task_model):
+                await self._mark_dependency_failed(task_model, dependency)
+
     async def delete_task(self, task_id: str) -> None:
         """
         Deletes a task, removing it from memory and deleting its state from disk.
@@ -405,7 +517,13 @@ class TaskManager:
         # 4. A new async, non-exclusive task is subject to the async concurrency limit.
         return len(self._running_async_tasks) < self.max_concurrent_non_exclusive_tasks
 
-    async def create_and_run_task(self, task_name: str, *args: Any, **kwargs: Any) -> Task:
+    async def create_and_run_task(
+        self,
+        task_name: str,
+        *args: Any,
+        depends_on: str | None = None,
+        **kwargs: Any,
+    ) -> Task:
         """
         Creates a new task. If possible, it starts the task immediately.
         Otherwise, the task is added to a pending queue.
@@ -415,6 +533,7 @@ class TaskManager:
         Args:
             task_name: The name of the registered task to run.
             *args: Positional arguments to pass to the task's run method.
+            depends_on: Optional ID of a task that must complete successfully first.
             **kwargs: Keyword arguments to pass to the task's run method.
 
         Returns:
@@ -437,30 +556,29 @@ class TaskManager:
             task_type=task_name,  # Persist the task type for reconstruction
             is_exclusive=task_model_is_exclusive,
             is_blocking=task_is_blocking,
+            depends_on=depends_on,
             run_args=args,
             run_kwargs=kwargs
         )
+        self._validate_dependency(task_model)
         logger.debug(f"Creating new task '{task_model.name}' ({task_model.id}) with args: {args}, kwargs: {kwargs}")
-        task_instance = task_class(task_model)  # BaseTask instance
 
         self._tasks[task_model.id] = task_model
         self._save_task_state(task_model)  # Persist immediately on creation
         await task_event_publisher.publish(task_model, TaskEventType.UPDATE)
 
-        # Scheduling Decision Point:
-        # A new non-exclusive task must be queued if an exclusive task is already pending.
-        should_queue_due_to_pending_exclusive = not task_model.is_exclusive and self._has_pending_exclusive_task()
-
-        if not should_queue_due_to_pending_exclusive and self._can_run_task(task_model.is_exclusive, task_is_blocking):
-            logger.info(f"Starting task '{task_model.name}' ({task_model.id}) immediately.")
-            self._start_task_execution(task_instance, *args, **kwargs)
+        if self._dependency_failed(task_model):
+            dependency = self._tasks[task_model.depends_on]
+            await self._mark_dependency_failed(task_model, dependency)
+        elif self._dependencies_satisfied(task_model):
+            await self._schedule_task_model(task_model)
         else:
-            if should_queue_due_to_pending_exclusive:
-                logger.info(f"Queueing task '{task_model.name}' ({task_model.id}) because an exclusive task is pending.")
-            else:
-                logger.info(f"Queueing task '{task_model.name}' ({task_model.id}). Conditions not met for immediate start.")
-            await self._pending_tasks.put((task_instance, args, kwargs))
-            # Task remains in PENDING status by default
+            logger.info(
+                "Holding task '%s' (%s) until dependency '%s' completes.",
+                task_model.name,
+                task_model.id,
+                task_model.depends_on,
+            )
 
         return task_model
 
@@ -564,17 +682,9 @@ class TaskManager:
             if task_model.is_exclusive and self._active_exclusive_task_id == task_instance.id:
                 self._active_exclusive_task_id = None
 
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                logger.debug(
-                    "No running event loop; skipping scheduling of pending tasks after %s.",
-                    task_model.id,
-                )
-            else:
-                loop.create_task(self._try_run_pending_tasks())  # Non-blocking attempt to run next task
-
         await task_event_publisher.publish(task_model, TaskEventType.UPDATE)
+        await self._handle_dependency_completion(task_model)
+        await self._try_run_pending_tasks()
 
     async def _try_run_pending_tasks(self) -> None:
         """Attempts to run tasks from the pending queue if conditions allow."""
@@ -647,7 +757,10 @@ class TaskManager:
             task_model.error = "Task was cancelled by user."
             self._save_task_state(task_model)
             await task_event_publisher.publish(task_model, TaskEventType.UPDATE)
-            # Note: completed_at will be set in _run_wrapper
+            # The wrapper may be cancelled before it gets to its post-run
+            # dependency handling, so notify dependents here as well.
+            await self._handle_dependency_completion(task_model)
+            # Note: completed_at will still be set in _run_wrapper
             return task_model
 
         # Case 2: Task is pending
@@ -676,6 +789,23 @@ class TaskManager:
             await self._pending_tasks.put(item)
 
         if found_and_removed_from_queue:
+            return task_model
+
+        # A dependency-blocked task is intentionally not present in the
+        # scheduler queue yet. It still needs to be cancellable through the
+        # normal task lifecycle API.
+        if task_model.status == TaskStatus.PENDING:
+            logger.info(
+                "Cancelling dependency-blocked task %s (%s).",
+                task_model.name,
+                task_id,
+            )
+            task_model.status = TaskStatus.CANCELLED
+            task_model.error = "Task was cancelled by user."
+            task_model.completed_at = datetime.now()
+            self._save_task_state(task_model)
+            await task_event_publisher.publish(task_model, TaskEventType.UPDATE)
+            await self._handle_dependency_completion(task_model)
             return task_model
 
         # Case 3: Task is already completed, failed, or cancelled
@@ -786,20 +916,18 @@ class TaskManager:
         self._save_task_state(task_model)  # Persist the reset state before queuing
         await task_event_publisher.publish(task_model, TaskEventType.UPDATE)
 
-        # A new task instance is required to re-run the logic
-        task_class = self._task_registry[task_model.name]
-        task_instance = task_class(task_model)
-
-        # Use the original args and kwargs stored in the model
-        args = task_model.run_args
-        kwargs = task_model.run_kwargs
-
-        if self._can_run_task(task_model.is_exclusive, task_instance.is_blocking):
-            logger.info(f"Restarting task '{task_model.name}' ({task_model.id}) immediately.")
-            self._start_task_execution(task_instance, *args, **kwargs)
+        if self._dependency_failed(task_model):
+            dependency = self._tasks[task_model.depends_on]
+            await self._mark_dependency_failed(task_model, dependency)
+        elif self._dependencies_satisfied(task_model):
+            await self._schedule_task_model(task_model)
         else:
-            logger.info(f"Queueing restarted task '{task_model.name}' ({task_model.id}).")
-            await self._pending_tasks.put((task_instance, args, kwargs))
+            logger.info(
+                "Holding restarted task '%s' (%s) until dependency '%s' completes.",
+                task_model.name,
+                task_model.id,
+                task_model.depends_on,
+            )
 
         return task_model
 

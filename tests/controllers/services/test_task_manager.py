@@ -314,6 +314,58 @@ async def test_exclusive_task_starvation_prevention(task_manager_fixture: TaskMa
     assert tm.get_task_info(another_non_exclusive_task.id).status == TaskStatus.PENDING
 
 
+async def test_dependent_task_waits_until_dependency_completes(task_manager_fixture: TaskManager):
+    """A dependency-blocked task is not scheduled before its dependency succeeds."""
+    tm = task_manager_fixture
+    dependency_release = asyncio.Event()
+
+    dependency = await tm.create_and_run_task(
+        "controlled_async_task",
+        completion_event=dependency_release,
+    )
+    dependent = await tm.create_and_run_task(
+        "hello_world_progress_task",
+        total_steps=1,
+        depends_on=dependency.id,
+    )
+
+    await asyncio.sleep(0.05)
+    assert tm.get_task_info(dependency.id).status == TaskStatus.RUNNING
+    assert tm.get_task_info(dependent.id).status == TaskStatus.PENDING
+    assert not tm._is_task_queued(dependent.id)
+
+    dependency_release.set()
+
+    dependency_state = await wait_for_task_completion(tm, dependency.id)
+    dependent_state = await wait_for_task_completion(tm, dependent.id)
+    assert dependency_state.status == TaskStatus.COMPLETED
+    assert dependent_state.status == TaskStatus.COMPLETED
+
+
+async def test_dependent_task_fails_when_dependency_is_cancelled(task_manager_fixture: TaskManager):
+    """A dependency-blocked task must not run after its dependency is cancelled."""
+    tm = task_manager_fixture
+    dependency_release = asyncio.Event()
+
+    dependency = await tm.create_and_run_task(
+        "controlled_async_task",
+        completion_event=dependency_release,
+    )
+    dependent = await tm.create_and_run_task(
+        "hello_world_progress_task",
+        total_steps=1,
+        depends_on=dependency.id,
+    )
+
+    await tm.cancel_task(dependency.id)
+    dependency_state = await wait_for_task_completion(tm, dependency.id)
+    dependent_state = await wait_for_task_completion(tm, dependent.id)
+
+    assert dependency_state.status == TaskStatus.CANCELLED
+    assert dependent_state.status == TaskStatus.ERROR
+    assert "dependency" in dependent_state.error.lower()
+
+
 async def test_pause_and_resume_task(task_manager_fixture: TaskManager):
     """
     Tests pausing and resuming a running task.
