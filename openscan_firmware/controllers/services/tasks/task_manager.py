@@ -789,6 +789,7 @@ class TaskManager:
             await self._pending_tasks.put(item)
 
         if found_and_removed_from_queue:
+            await self._handle_dependency_completion(task_model)
             return task_model
 
         # A dependency-blocked task is intentionally not present in the

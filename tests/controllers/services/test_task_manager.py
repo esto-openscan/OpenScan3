@@ -366,6 +366,146 @@ async def test_dependent_task_fails_when_dependency_is_cancelled(task_manager_fi
     assert "dependency" in dependent_state.error.lower()
 
 
+async def test_dependent_task_is_started_when_dependency_already_completed(task_manager_fixture: TaskManager):
+    """A task created after a successful dependency should start immediately."""
+    tm = task_manager_fixture
+
+    dependency = await tm.create_and_run_task(
+        "hello_world_progress_task",
+        total_steps=1,
+        interval=0.01,
+    )
+    dependency_state = await wait_for_task_completion(tm, dependency.id)
+    assert dependency_state.status == TaskStatus.COMPLETED
+
+    dependent = await tm.create_and_run_task(
+        "hello_world_progress_task",
+        total_steps=1,
+        interval=0.01,
+        depends_on=dependency.id,
+    )
+    assert dependent.status in {TaskStatus.RUNNING, TaskStatus.COMPLETED}
+
+    dependent_state = await wait_for_task_completion(tm, dependent.id)
+    assert dependent_state.status == TaskStatus.COMPLETED
+
+
+async def test_dependent_task_fails_when_dependency_already_failed(task_manager_fixture: TaskManager):
+    """A task created after a failed dependency must fail without starting."""
+    tm = task_manager_fixture
+
+    dependency = await tm.create_and_run_task(
+        "failing_task",
+        error_message="dependency failed before child creation",
+    )
+    dependency_state = await wait_for_task_completion(tm, dependency.id)
+    assert dependency_state.status == TaskStatus.ERROR
+
+    dependent = await tm.create_and_run_task(
+        "hello_world_progress_task",
+        total_steps=1,
+        depends_on=dependency.id,
+    )
+
+    assert dependent.status == TaskStatus.ERROR
+    assert dependent.started_at is None
+    assert "Dependency task" in dependent.error
+
+
+async def test_cancelling_queued_dependency_fails_waiting_dependents(task_manager_fixture: TaskManager):
+    """Cancelling a queued dependency must fail tasks waiting on it."""
+    tm = task_manager_fixture
+
+    exclusive_task = await tm.create_and_run_task("exclusive_demo_task", duration=2)
+    dependency = await tm.create_and_run_task(
+        "hello_world_progress_task",
+        total_steps=1,
+        interval=0.1,
+    )
+    dependent = await tm.create_and_run_task(
+        "hello_world_progress_task",
+        total_steps=1,
+        depends_on=dependency.id,
+    )
+
+    await asyncio.sleep(0.05)
+    assert tm.get_task_info(dependency.id).status == TaskStatus.PENDING
+    assert tm._is_task_queued(dependency.id)
+    assert tm.get_task_info(dependent.id).status == TaskStatus.PENDING
+
+    await tm.cancel_task(dependency.id)
+
+    dependency_state = await wait_for_task_completion(tm, dependency.id)
+    dependent_state = await wait_for_task_completion(tm, dependent.id)
+    assert dependency_state.status == TaskStatus.CANCELLED
+    assert dependent_state.status == TaskStatus.ERROR
+    assert dependent_state.started_at is None
+
+    await tm.cancel_task(exclusive_task.id)
+
+
+async def test_cancelling_waiting_dependent_prevents_later_start(task_manager_fixture: TaskManager):
+    """A cancelled dependency-blocked task must stay cancelled after its parent succeeds."""
+    tm = task_manager_fixture
+    dependency_release = asyncio.Event()
+
+    dependency = await tm.create_and_run_task(
+        "controlled_async_task",
+        completion_event=dependency_release,
+    )
+    dependent = await tm.create_and_run_task(
+        "hello_world_progress_task",
+        total_steps=1,
+        depends_on=dependency.id,
+    )
+
+    cancelled_dependent = await tm.cancel_task(dependent.id)
+    assert cancelled_dependent.status == TaskStatus.CANCELLED
+
+    dependency_release.set()
+    await wait_for_task_completion(tm, dependency.id)
+    await asyncio.sleep(0.05)
+
+    dependent_state = tm.get_task_info(dependent.id)
+    assert dependent_state.status == TaskStatus.CANCELLED
+    assert dependent_state.started_at is None
+
+
+async def test_create_task_rejects_missing_dependency(task_manager_fixture: TaskManager):
+    """A dependency ID must refer to a known task."""
+    tm = task_manager_fixture
+
+    with pytest.raises(ValueError, match="does not exist"):
+        await tm.create_and_run_task(
+            "hello_world_progress_task",
+            total_steps=1,
+            depends_on="missing-task-id",
+        )
+
+
+async def test_dependency_cycle_is_rejected(task_manager_fixture: TaskManager):
+    """The dependency validator must reject a cycle in the existing task graph."""
+    tm = task_manager_fixture
+    first = Task(name="hello_world_progress_task", task_type="hello_world_progress_task")
+    second = Task(
+        name="hello_world_progress_task",
+        task_type="hello_world_progress_task",
+        depends_on=first.id,
+    )
+    first.depends_on = second.id
+    tm._tasks[first.id] = first
+    tm._tasks[second.id] = second
+
+    cycle_candidate = Task(
+        name="hello_world_progress_task",
+        task_type="hello_world_progress_task",
+        depends_on=first.id,
+    )
+
+    with pytest.raises(ValueError, match="cycle detected"):
+        tm._validate_dependency(cycle_candidate)
+
+
 async def test_pause_and_resume_task(task_manager_fixture: TaskManager):
     """
     Tests pausing and resuming a running task.
