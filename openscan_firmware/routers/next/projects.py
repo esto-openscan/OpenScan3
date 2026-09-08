@@ -62,6 +62,7 @@ class ScanCreateRequest(BaseModel):
     camera_name: str
     scan_settings: ScanSetting
     scan_description: str = ""
+    depends_on: str | None = None
 
 
 @router.get("/", response_model=dict[str, Project])
@@ -157,7 +158,12 @@ async def add_scan(
             request.scan_settings,
             request.scan_description,
         )
-        task = await scans.start_scan(project_manager, scan, camera_controller)
+        task = await scans.start_scan(
+            project_manager,
+            scan,
+            camera_controller,
+            depends_on=request.depends_on,
+        )
         return task
 
     except ValueError as exc:
@@ -171,7 +177,11 @@ async def add_scan(
 
 
 @router.post("/{project_name}/upload", response_model=Task)
-async def upload_project_to_cloud(project_name: str, token_override: Optional[str] = None) -> Task:
+async def upload_project_to_cloud(
+    project_name: str,
+    token_override: Optional[str] = None,
+    depends_on: Optional[str] = None,
+) -> Task:
     """Schedule an asynchronous cloud upload for a project.
 
     Args:
@@ -182,7 +192,11 @@ async def upload_project_to_cloud(project_name: str, token_override: Optional[st
         Task: The TaskManager model describing the scheduled upload
     """
     try:
-        task = await cloud.upload_project(project_name, token=token_override)
+        task = await cloud.upload_project(
+            project_name,
+            token=token_override,
+            depends_on=depends_on,
+        )
     except cloud.CloudServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return task

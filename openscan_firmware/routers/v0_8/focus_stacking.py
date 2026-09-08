@@ -10,10 +10,18 @@ router = APIRouter(prefix="/projects", tags=["focus_stacking"])
 
 
 @router.post("/{project_name}/scans/{scan_index:int}/focus-stacking/start", response_model=Task)
-async def start_focus_stacking(project_name: str, scan_index: int) -> Task:
+async def start_focus_stacking(
+    project_name: str,
+    scan_index: int,
+    depends_on: str | None = None,
+) -> Task:
     """Start focus stacking for a scan."""
     try:
-        return await focus_service.start_focus_stacking(project_name, scan_index)
+        return await focus_service.start_focus_stacking(
+            project_name,
+            scan_index,
+            depends_on=depends_on,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover - unexpected errors bubble up as 500

@@ -65,9 +65,19 @@ async def test_start_focus_stacking_persists_task_reference(scan: Scan, patch_pr
         id="task-123",
     )
 
-    task = await service.start_focus_stacking("demo", 1)
+    task = await service.start_focus_stacking(
+        "demo",
+        1,
+        depends_on="task-prerequisite",
+    )
 
     patch_project_manager.get_scan_by_index.assert_called_once_with("demo", 1)
+    patch_task_manager.create_and_run_task.assert_awaited_once_with(
+        "focus_stacking_task",
+        "demo",
+        1,
+        depends_on="task-prerequisite",
+    )
     assert scan.stacking_task_status == StackingTaskStatus(task_id="task-123", status=TaskStatus.RUNNING)
     patch_project_manager.save_scan_state.assert_awaited_once_with(scan)
     assert task.id == "task-123"

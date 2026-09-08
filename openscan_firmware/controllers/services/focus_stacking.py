@@ -19,12 +19,17 @@ _ACTIVE_STATUSES = {
 }
 
 
-async def start_focus_stacking(project_name: str, scan_index: int) -> Task:
+async def start_focus_stacking(
+    project_name: str,
+    scan_index: int,
+    depends_on: str | None = None,
+) -> Task:
     """Start a focus stacking task and persist the task reference on the scan.
 
     Args:
         project_name: Name of the project containing the scan.
         scan_index: Index of the scan to process.
+        depends_on: Optional ID of a task that must complete successfully first.
 
     Returns:
         The Task representing the focus stacking job.
@@ -50,10 +55,12 @@ async def start_focus_stacking(project_name: str, scan_index: int) -> Task:
             )
             return existing_task
 
+    task_kwargs = {"depends_on": depends_on} if depends_on is not None else {}
     task = await task_manager.create_and_run_task(
         "focus_stacking_task",
         project_name,
         scan_index,
+        **task_kwargs,
     )
 
     scan.stacking_task_status = StackingTaskStatus(task_id=task.id, status=task.status)

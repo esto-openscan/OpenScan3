@@ -111,6 +111,7 @@ async def test_upload_project_starts_when_not_blocked(monkeypatch, project_manag
     created_task = Task(name="cloud_upload_task", task_type="cloud_upload_task")
 
     async def fake_create_and_run(task_name, project_name, **kwargs):
+        assert kwargs["depends_on"] == "task-prerequisite"
         task_manager.add_task(created_task)
         return created_task
 
@@ -124,7 +125,7 @@ async def test_upload_project_starts_when_not_blocked(monkeypatch, project_manag
     )
     monkeypatch.setattr(task_manager, "create_and_run_task", fake_create_and_run)
 
-    task = await upload_project("demo")
+    task = await upload_project("demo", depends_on="task-prerequisite")
     assert task is created_task
 
 

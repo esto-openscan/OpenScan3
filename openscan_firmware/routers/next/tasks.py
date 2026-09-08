@@ -13,6 +13,15 @@ router = APIRouter(
 )
 
 
+_DOMAIN_TASK_ENDPOINTS = {
+    "scan_task": "POST /projects/{project_name}/scan",
+    "focus_stacking_task": (
+        "POST /projects/{project_name}/scans/{scan_index}/focus-stacking/start"
+    ),
+    "cloud_upload_task": "POST /projects/{project_name}/upload",
+}
+
+
 @router.get("/", response_model=List[Task])
 async def get_all_tasks():
     """
@@ -131,7 +140,11 @@ async def create_task(
     ),
 ):
     """
-    Create and start a new background task with optional parameters.
+    Create and start an experimental or custom background task.
+
+    Domain-owned tasks such as scans, focus stacking, and cloud uploads must
+    be started through their project-specific endpoints. Those endpoints also
+    persist the task reference and maintain the corresponding domain status.
 
     The request body accepts:
     - **depends_on**: Optional ID of a prerequisite task
@@ -168,6 +181,17 @@ async def create_task(
         }
         ```
     """
+    domain_endpoint = _DOMAIN_TASK_ENDPOINTS.get(task_name)
+    if domain_endpoint:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Task '{task_name}' is managed by a project-specific endpoint. "
+                f"Use {domain_endpoint} instead. The generic /tasks/{{task_name}} "
+                "endpoint is intended for experimental or custom tasks."
+            ),
+        )
+
     try:
         task_manager = get_task_manager()
         task = await task_manager.create_and_run_task(

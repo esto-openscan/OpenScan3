@@ -508,6 +508,7 @@ async def upload_project(
     *,
     project_manager: ProjectManager | None = None,
     token: str | None = None,
+    depends_on: str | None = None,
 ):
     """Schedule an upload task for an existing project.
 
@@ -515,6 +516,7 @@ async def upload_project(
         project_name: Name of the project directory to upload.
         project_manager: Optional project manager to validate the project exists.
         token: Optional cloud token override forwarded to the task.
+        depends_on: Optional ID of a task that must complete successfully first.
 
     Returns:
         Task: The TaskManager model describing the scheduled upload.
@@ -546,10 +548,12 @@ async def upload_project(
                 "An upload for this project is already in progress. Wait for completion or cancel it."
             )
 
+    task_kwargs = {"depends_on": depends_on} if depends_on is not None else {}
     task = await task_manager.create_and_run_task(
         "cloud_upload_task",
         project_name,
         token=token,
+        **task_kwargs,
     )
     return task
 

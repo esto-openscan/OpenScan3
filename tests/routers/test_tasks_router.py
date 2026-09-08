@@ -76,14 +76,14 @@ def test_create_task_accepts_dependency(
 ) -> None:
     task_manager = MagicMock()
     task_manager.create_and_run_task = AsyncMock(
-        return_value=Task(name="focus_stacking_task", task_type="focus_stacking_task")
+        return_value=Task(name="hello_world_progress_task", task_type="hello_world_progress_task")
     )
     monkeypatch.setattr(import_module(router_module), "get_task_manager", lambda: task_manager)
 
     response = client.post(
-        f"/{api_version}/tasks/focus_stacking_task",
+        f"/{api_version}/tasks/hello_world_progress_task",
         json={
-            "args": ["demo-project", 1],
+            "args": ["demo"],
             "kwargs": {"some_option": True},
             "depends_on": "scan-task-id",
         },
@@ -91,9 +91,8 @@ def test_create_task_accepts_dependency(
 
     assert response.status_code == 202
     task_manager.create_and_run_task.assert_awaited_once_with(
-        "focus_stacking_task",
-        "demo-project",
-        1,
+        "hello_world_progress_task",
+        "demo",
         depends_on="scan-task-id",
         some_option=True,
     )
@@ -115,20 +114,46 @@ def test_create_task_dependency_is_optional(
 ) -> None:
     task_manager = MagicMock()
     task_manager.create_and_run_task = AsyncMock(
-        return_value=Task(name="scan_task", task_type="scan_task")
+        return_value=Task(name="hello_world_progress_task", task_type="hello_world_progress_task")
     )
     monkeypatch.setattr(import_module(router_module), "get_task_manager", lambda: task_manager)
 
     response = client.post(
-        f"/{api_version}/tasks/scan_task",
+        f"/{api_version}/tasks/hello_world_progress_task",
         json={"args": [], "kwargs": {}},
     )
 
     assert response.status_code == 202
     task_manager.create_and_run_task.assert_awaited_once_with(
-        "scan_task",
+        "hello_world_progress_task",
         depends_on=None,
     )
+
+
+@pytest.mark.parametrize(
+    ("task_name", "expected_endpoint"),
+    [
+        ("scan_task", "POST /projects/{project_name}/scan"),
+        (
+            "focus_stacking_task",
+            "POST /projects/{project_name}/scans/{scan_index}/focus-stacking/start",
+        ),
+        ("cloud_upload_task", "POST /projects/{project_name}/upload"),
+    ],
+)
+def test_domain_tasks_must_use_project_specific_endpoints(
+    client: TestClient,
+    task_name: str,
+    expected_endpoint: str,
+) -> None:
+    response = client.post(
+        f"/next/tasks/{task_name}",
+        json={"args": [], "kwargs": {}},
+    )
+
+    assert response.status_code == 400
+    assert expected_endpoint in response.json()["detail"]
+    assert "experimental or custom tasks" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
