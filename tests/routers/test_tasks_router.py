@@ -170,8 +170,8 @@ async def test_task_api_runs_real_three_step_chain(
     assert first_result.status == TaskStatus.COMPLETED
     assert second_result.status == TaskStatus.COMPLETED
     assert third_result.status == TaskStatus.COMPLETED
-    assert real_task_manager.get_task_info(second.id).depends_on == first.id
-    assert real_task_manager.get_task_info(third.id).depends_on == second.id
+    assert real_task_manager.get_task_info(second.id).depends_on is None
+    assert real_task_manager.get_task_info(third.id).depends_on is None
 
 
 @pytest.mark.asyncio

@@ -184,11 +184,21 @@ class TaskManager:
                         loaded_count += 1
                         continue
 
-                    # Reset state for tasks that were running when the app was last closed
-                    if task_model.status in [TaskStatus.RUNNING, TaskStatus.PAUSED]:
+                    # Any non-terminal task from the previous process must be
+                    # explicitly restarted by the user after startup. This
+                    # includes queued and dependency-blocked tasks, so no
+                    # hardware or other side effect can start automatically.
+                    if task_model.status in [
+                        TaskStatus.PENDING,
+                        TaskStatus.RUNNING,
+                        TaskStatus.PAUSED,
+                    ]:
                         task_model.status = TaskStatus.INTERRUPTED
                         task_model.error = "Task was interrupted by application shutdown."
-                        logger.warning(f"Task '{task_model.name}' ({task_model.id}) was interrupted. Set to INTERRUPTED.")
+                        logger.warning(
+                            f"Task '{task_model.name}' ({task_model.id}) was interrupted. "
+                            "Set to INTERRUPTED."
+                        )
                         self._save_task_state(task_model)  # Persist the new state
                         interrupted_count += 1
 
@@ -356,6 +366,18 @@ class TaskManager:
             for task_instance, _, _ in self._pending_tasks._queue
         )
 
+    async def _consume_completed_dependency(self, task_model: Task) -> None:
+        """Remove a successfully completed dependency from a waiting task."""
+        if (
+            task_model.depends_on is None
+            or self._dependency_status(task_model) != TaskStatus.COMPLETED
+        ):
+            return
+
+        task_model.depends_on = None
+        self._save_task_state(task_model)
+        await task_event_publisher.publish(task_model, TaskEventType.UPDATE)
+
     async def _schedule_task_model(self, task_model: Task) -> None:
         """Schedule a dependency-ready task using the normal scheduler rules."""
         if not self._dependencies_satisfied(task_model):
@@ -363,6 +385,8 @@ class TaskManager:
 
         if task_model.status != TaskStatus.PENDING or self._is_task_queued(task_model.id):
             return
+
+        await self._consume_completed_dependency(task_model)
 
         task_class = self._task_registry[task_model.name]
         task_instance = task_class(task_model)
@@ -408,14 +432,17 @@ class TaskManager:
         await self._handle_dependency_completion(task_model)
 
     async def _handle_dependency_completion(self, dependency: Task) -> None:
-        """Release or fail tasks that depend directly on a completed task."""
+        """Release, fail, or detach tasks that depend directly on a task."""
         for task_model in list(self._tasks.values()):
-            if task_model.depends_on != dependency.id or task_model.status != TaskStatus.PENDING:
+            if task_model.depends_on != dependency.id:
                 continue
 
             if dependency.status == TaskStatus.COMPLETED:
-                await self._schedule_task_model(task_model)
-            elif self._dependency_failed(task_model):
+                if task_model.status in {TaskStatus.PENDING, TaskStatus.INTERRUPTED}:
+                    await self._consume_completed_dependency(task_model)
+                    if task_model.status == TaskStatus.PENDING:
+                        await self._schedule_task_model(task_model)
+            elif task_model.status == TaskStatus.PENDING and self._dependency_failed(task_model):
                 await self._mark_dependency_failed(task_model, dependency)
 
     async def delete_task(self, task_id: str) -> None:

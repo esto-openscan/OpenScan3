@@ -340,6 +340,7 @@ async def test_dependent_task_waits_until_dependency_completes(task_manager_fixt
     dependent_state = await wait_for_task_completion(tm, dependent.id)
     assert dependency_state.status == TaskStatus.COMPLETED
     assert dependent_state.status == TaskStatus.COMPLETED
+    assert dependent_state.depends_on is None
 
 
 async def test_dependent_task_fails_when_dependency_is_cancelled(task_manager_fixture: TaskManager):
@@ -388,6 +389,11 @@ async def test_dependent_task_is_started_when_dependency_already_completed(task_
 
     dependent_state = await wait_for_task_completion(tm, dependent.id)
     assert dependent_state.status == TaskStatus.COMPLETED
+    assert dependent_state.depends_on is None
+
+    with open(TASKS_STORAGE_PATH / f"{dependent.id}.json", "r") as task_file:
+        persisted_dependent = json.load(task_file)
+    assert persisted_dependent["depends_on"] is None
 
 
 async def test_dependent_task_fails_when_dependency_already_failed(task_manager_fixture: TaskManager):
@@ -410,6 +416,7 @@ async def test_dependent_task_fails_when_dependency_already_failed(task_manager_
     assert dependent.status == TaskStatus.ERROR
     assert dependent.started_at is None
     assert "Dependency task" in dependent.error
+    assert dependent.depends_on == dependency.id
 
 
 async def test_cancelling_queued_dependency_fails_waiting_dependents(task_manager_fixture: TaskManager):
@@ -776,6 +783,17 @@ async def test_tasks_are_reloaded_on_startup(task_manager_fixture: TaskManager):
     completed_task = Task(name="completed_task", task_type="hello_world_progress_task", status=TaskStatus.COMPLETED)
     running_task = Task(name="running_task", task_type="hello_world_progress_task", status=TaskStatus.RUNNING)
     paused_task = Task(name="paused_task", task_type="hello_world_progress_task", status=TaskStatus.PAUSED)
+    dependency_task = Task(
+        name="dependency_task",
+        task_type="hello_world_progress_task",
+        status=TaskStatus.RUNNING,
+    )
+    pending_task = Task(
+        name="pending_task",
+        task_type="hello_world_progress_task",
+        status=TaskStatus.PENDING,
+        depends_on=dependency_task.id,
+    )
 
     with open(TASKS_STORAGE_PATH / f"{completed_task.id}.json", 'w') as f:
         f.write(completed_task.model_dump_json())
@@ -783,6 +801,10 @@ async def test_tasks_are_reloaded_on_startup(task_manager_fixture: TaskManager):
         f.write(running_task.model_dump_json())
     with open(TASKS_STORAGE_PATH / f"{paused_task.id}.json", 'w') as f:
         f.write(paused_task.model_dump_json())
+    with open(TASKS_STORAGE_PATH / f"{dependency_task.id}.json", 'w') as f:
+        f.write(dependency_task.model_dump_json())
+    with open(TASKS_STORAGE_PATH / f"{pending_task.id}.json", 'w') as f:
+        f.write(pending_task.model_dump_json())
 
     # --- Simulate Application Restart ---
     # Instead of creating a new instance, we clear the internal state of the
@@ -793,11 +815,13 @@ async def test_tasks_are_reloaded_on_startup(task_manager_fixture: TaskManager):
     # --- Verification ---
     # Check if all non-completed tasks were loaded
     all_loaded_tasks = tm.get_all_tasks_info()
-    assert len(all_loaded_tasks) == 2  # Completed task should be cleaned up
+    assert len(all_loaded_tasks) == 4  # Completed task should be cleaned up
 
     loaded_task_ids = {t.id for t in all_loaded_tasks}
     assert running_task.id in loaded_task_ids
     assert paused_task.id in loaded_task_ids
+    assert dependency_task.id in loaded_task_ids
+    assert pending_task.id in loaded_task_ids
     assert completed_task.id not in loaded_task_ids
 
     # Verify the completed task's file was deleted
@@ -806,6 +830,10 @@ async def test_tasks_are_reloaded_on_startup(task_manager_fixture: TaskManager):
     # Verify that the other tasks were correctly marked as INTERRUPTED
     for task in all_loaded_tasks:
         assert task.status == TaskStatus.INTERRUPTED
+
+    restored_pending_task = tm.get_task_info(pending_task.id)
+    assert restored_pending_task.depends_on == dependency_task.id
+    assert tm._pending_tasks.empty()
 
 
 async def test_cancelled_task_state_is_persisted(task_manager_fixture: TaskManager):
@@ -966,6 +994,80 @@ async def test_restart_interrupted_task_after_shutdown(task_manager_fixture: Tas
     final_state = await tm.wait_for_task(restarted_task.id, timeout=2)
     assert final_state.status == TaskStatus.COMPLETED
     assert final_state.progress.current == total_steps
+
+
+async def test_restart_restored_pending_task_after_shutdown(task_manager_fixture: TaskManager):
+    """A task that was pending at shutdown can be explicitly restarted afterwards."""
+    tm = task_manager_fixture
+    task = Task(
+        name="hello_world_progress_task",
+        task_type="hello_world_progress_task",
+        status=TaskStatus.PENDING,
+        run_kwargs={"total_steps": 1, "interval": 0.01},
+    )
+    tm._save_task_state(task)
+
+    tm.restore_tasks_from_persistence()
+
+    restored_task = tm.get_task_info(task.id)
+    assert restored_task.status == TaskStatus.INTERRUPTED
+    assert tm._pending_tasks.empty()
+
+    restarted_task = await tm.restart_task(task.id)
+    assert restarted_task.status == TaskStatus.RUNNING
+
+    final_state = await tm.wait_for_task(task.id, timeout=2)
+    assert final_state.status == TaskStatus.COMPLETED
+
+
+async def test_restart_waiting_task_after_restarted_dependency_completed(
+    task_manager_fixture: TaskManager,
+):
+    """A restarted dependent task starts immediately after its restarted dependency completed."""
+    tm = task_manager_fixture
+    dependency = Task(
+        name="hello_world_progress_task",
+        task_type="hello_world_progress_task",
+        status=TaskStatus.RUNNING,
+        run_kwargs={"total_steps": 1, "interval": 0.01},
+    )
+    dependent = Task(
+        name="hello_world_progress_task",
+        task_type="hello_world_progress_task",
+        status=TaskStatus.PENDING,
+        depends_on=dependency.id,
+        run_kwargs={"total_steps": 1, "interval": 0.01},
+    )
+    tm._save_task_state(dependency)
+    tm._save_task_state(dependent)
+
+    tm.restore_tasks_from_persistence()
+
+    restored_dependency = tm.get_task_info(dependency.id)
+    restored_dependent = tm.get_task_info(dependent.id)
+    assert restored_dependency.status == TaskStatus.INTERRUPTED
+    assert restored_dependent.status == TaskStatus.INTERRUPTED
+    assert restored_dependent.depends_on == dependency.id
+
+    restarted_dependency = await tm.restart_task(dependency.id)
+    assert restarted_dependency.status == TaskStatus.RUNNING
+    dependency_state = await wait_for_task_completion(tm, dependency.id, timeout=2)
+    assert dependency_state.status == TaskStatus.COMPLETED
+
+    # Recovery is intentionally manual; the dependent is not auto-started by
+    # the predecessor's completion event because it was also interrupted.
+    restored_dependent = tm.get_task_info(dependent.id)
+    assert restored_dependent.status == TaskStatus.INTERRUPTED
+    assert restored_dependent.depends_on is None
+
+    with open(TASKS_STORAGE_PATH / f"{dependent.id}.json", "r") as task_file:
+        persisted_dependent = json.load(task_file)
+    assert persisted_dependent["depends_on"] is None
+
+    restarted_dependent = await tm.restart_task(dependent.id)
+    assert restarted_dependent.status == TaskStatus.RUNNING
+    dependent_state = await wait_for_task_completion(tm, dependent.id, timeout=2)
+    assert dependent_state.status == TaskStatus.COMPLETED
 
 
 async def test_cancel_pending_task_in_full_queue(task_manager_fixture: TaskManager):
