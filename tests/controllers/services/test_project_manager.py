@@ -278,10 +278,12 @@ async def test_pm_add_scan_to_project(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("stacking_status", [TaskStatus.RUNNING, TaskStatus.PENDING, TaskStatus.PAUSED])
 async def test_pm_save_scan_state_persists_stacking_status(
     project_manager: ProjectManager,
     mock_camera_controller: MagicMock,
     sample_scan_settings: ScanSetting,
+    stacking_status: TaskStatus,
 ):
     """Ensure stacking task status is written to disk and survives reload."""
 
@@ -296,7 +298,7 @@ async def test_pm_save_scan_state_persists_stacking_status(
 
     scan.stacking_task_status = StackingTaskStatus(
         task_id="stack-123",
-        status=TaskStatus.RUNNING,
+        status=stacking_status,
     )
 
     await project_manager.save_scan_state(scan)
@@ -307,7 +309,7 @@ async def test_pm_save_scan_state_persists_stacking_status(
 
     assert payload["stacking_task_status"] == {
         "task_id": "stack-123",
-        "status": TaskStatus.RUNNING.value,
+        "status": stacking_status.value,
     }
 
     reloaded_manager = ProjectManager(path=Path(project_manager._path))

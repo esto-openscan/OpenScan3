@@ -513,13 +513,114 @@ async def test_dependency_cycle_is_rejected(task_manager_fixture: TaskManager):
         tm._validate_dependency(cycle_candidate)
 
 
-async def test_replacing_task_repoints_dependents(task_manager_fixture: TaskManager):
+async def test_replacement_dependency_references_survive_restore(task_manager_fixture: TaskManager):
+    """A replacement's rewired dependents retain the new ID after a restart."""
+    tm = task_manager_fixture
+    old_task = Task(
+        name="hello_world_progress_task",
+        task_type="hello_world_progress_task",
+        status=TaskStatus.CANCELLED,
+    )
+    replacement = Task(
+        name="hello_world_progress_task",
+        task_type="hello_world_progress_task",
+        status=TaskStatus.PENDING,
+    )
+    dependent = Task(
+        name="hello_world_progress_task",
+        task_type="hello_world_progress_task",
+        status=TaskStatus.PENDING,
+        depends_on=old_task.id,
+    )
+    tm._tasks.update({old_task.id: old_task, replacement.id: replacement, dependent.id: dependent})
+    for task in (old_task, replacement, dependent):
+        tm._save_task_state(task)
+
+    await tm.replace_task(old_task.id, replacement.id)
+    tm._tasks = {}
+    tm.restore_tasks_from_persistence()
+
+    assert tm.get_task_info(old_task.id) is None
+    assert tm.get_task_info(replacement.id).status == TaskStatus.INTERRUPTED
+    restored_dependent = tm.get_task_info(dependent.id)
+    assert restored_dependent.status == TaskStatus.INTERRUPTED
+    assert restored_dependent.depends_on == replacement.id
+
+
+async def test_delete_task_does_not_delete_dependents(task_manager_fixture: TaskManager):
+    """Direct deletion removes one task and leaves dependency ownership explicit."""
+    tm = task_manager_fixture
+    deleted_task = Task(
+        name="hello_world_progress_task",
+        task_type="hello_world_progress_task",
+        status=TaskStatus.CANCELLED,
+    )
+    dependent = Task(
+        name="hello_world_progress_task",
+        task_type="hello_world_progress_task",
+        status=TaskStatus.PENDING,
+        depends_on=deleted_task.id,
+    )
+    tm._tasks.update({deleted_task.id: deleted_task, dependent.id: dependent})
+
+    await tm.delete_task(deleted_task.id)
+
+    assert tm.get_task_info(deleted_task.id) is None
+    assert tm.get_task_info(dependent.id) is dependent
+    assert dependent.depends_on == deleted_task.id
+
+
+async def test_replacement_keeps_explicit_new_dependency(task_manager_fixture: TaskManager):
+    """Replacement rewiring must not overwrite a dependency explicitly set on the new task."""
+    tm = task_manager_fixture
+    old_task = Task(
+        name="hello_world_progress_task",
+        task_type="hello_world_progress_task",
+        status=TaskStatus.INTERRUPTED,
+    )
+    explicit_dependency = Task(
+        name="hello_world_progress_task",
+        task_type="hello_world_progress_task",
+        status=TaskStatus.COMPLETED,
+    )
+    replacement = Task(
+        name="hello_world_progress_task",
+        task_type="hello_world_progress_task",
+        status=TaskStatus.PENDING,
+        depends_on=explicit_dependency.id,
+    )
+    dependent = Task(
+        name="hello_world_progress_task",
+        task_type="hello_world_progress_task",
+        status=TaskStatus.PENDING,
+        depends_on=old_task.id,
+    )
+    tm._tasks.update(
+        {
+            old_task.id: old_task,
+            explicit_dependency.id: explicit_dependency,
+            replacement.id: replacement,
+            dependent.id: dependent,
+        }
+    )
+
+    await tm.replace_task(old_task.id, replacement.id)
+
+    assert replacement.depends_on == explicit_dependency.id
+    assert dependent.depends_on == replacement.id
+
+
+@pytest.mark.parametrize(
+    "old_status",
+    [TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.ERROR, TaskStatus.INTERRUPTED],
+)
+async def test_replacing_task_repoints_dependents(task_manager_fixture: TaskManager, old_status: TaskStatus):
     """Replacing a task keeps dependent tasks attached to the new task ID."""
     tm = task_manager_fixture
     interrupted = Task(
         name="hello_world_progress_task",
         task_type="hello_world_progress_task",
-        status=TaskStatus.INTERRUPTED,
+        status=old_status,
     )
     replacement = Task(
         name="hello_world_progress_task",
@@ -562,19 +663,58 @@ async def test_replacing_task_repoints_dependents(task_manager_fixture: TaskMana
     assert not os.path.exists(TASKS_STORAGE_PATH / f"{interrupted.id}.json")
 
 
-async def test_wait_for_interrupted_task_returns_immediately(task_manager_fixture: TaskManager):
-    """Interrupted is a terminal persisted state until an explicit resume."""
+@pytest.mark.parametrize(
+    "terminal_status",
+    [TaskStatus.COMPLETED, TaskStatus.ERROR, TaskStatus.CANCELLED, TaskStatus.INTERRUPTED],
+)
+async def test_wait_for_terminal_task_returns_immediately(
+    task_manager_fixture: TaskManager,
+    terminal_status: TaskStatus,
+):
+    """All terminal states return immediately and require no restart implicitly."""
     tm = task_manager_fixture
     task = Task(
         name="hello_world_progress_task",
         task_type="hello_world_progress_task",
-        status=TaskStatus.INTERRUPTED,
+        status=terminal_status,
     )
     tm._tasks[task.id] = task
 
     waited_for = await tm.wait_for_task(task.id, timeout=0.01)
 
     assert waited_for is task
+
+
+@pytest.mark.parametrize(
+    "dependency_status",
+    [TaskStatus.CANCELLED, TaskStatus.ERROR, TaskStatus.INTERRUPTED],
+)
+async def test_restart_interrupted_task_fails_when_dependency_is_unsuccessful(
+    task_manager_fixture: TaskManager,
+    dependency_status: TaskStatus,
+):
+    """Resuming an interrupted dependent task must not bypass a failed prerequisite."""
+    tm = task_manager_fixture
+    dependency = Task(
+        name="hello_world_progress_task",
+        task_type="hello_world_progress_task",
+        status=dependency_status,
+    )
+    dependent = Task(
+        name="hello_world_progress_task",
+        task_type="hello_world_progress_task",
+        status=TaskStatus.INTERRUPTED,
+        depends_on=dependency.id,
+        run_kwargs={"total_steps": 1, "interval": 0.01},
+    )
+    tm._tasks.update({dependency.id: dependency, dependent.id: dependent})
+
+    resumed = await tm.resume_task(dependent.id)
+
+    assert resumed.status == TaskStatus.ERROR
+    assert resumed.started_at is None
+    assert resumed.depends_on == dependency.id
+    assert dependency_status.value in resumed.error
 
 
 async def test_pause_and_resume_task(task_manager_fixture: TaskManager):
