@@ -1,3 +1,11 @@
+openscan3-firmware (0.13.0) unstable; urgency=medium
+
+  * Add task dependency chaining across the supported task APIs.
+  * Resume interrupted scan and focus-stacking tasks after a restart.
+  * Clarify the use of generic and project-specific task endpoints.
+
+ -- OpenScan3 Contributors <info@openscan.eu>  Tue, 15 Sep 2026 00:00:00 +0200
+
 openscan3-firmware (0.12.0) unstable; urgency=medium
 
   * Add Debian package installation and service integration for the firmware.
