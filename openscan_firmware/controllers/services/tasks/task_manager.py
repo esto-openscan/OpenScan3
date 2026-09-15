@@ -418,7 +418,7 @@ class TaskManager:
 
     async def _mark_dependency_failed(self, task_model: Task, dependency: Task) -> None:
         """Complete a waiting task with an error when its dependency failed."""
-        if task_model.status != TaskStatus.PENDING:
+        if task_model.status not in {TaskStatus.PENDING, TaskStatus.INTERRUPTED}:
             return
 
         task_model.status = TaskStatus.ERROR
@@ -442,7 +442,10 @@ class TaskManager:
                     await self._consume_completed_dependency(task_model)
                     if task_model.status == TaskStatus.PENDING:
                         await self._schedule_task_model(task_model)
-            elif task_model.status == TaskStatus.PENDING and self._dependency_failed(task_model):
+            elif (
+                task_model.status in {TaskStatus.PENDING, TaskStatus.INTERRUPTED}
+                and self._dependency_failed(task_model)
+            ):
                 await self._mark_dependency_failed(task_model, dependency)
 
     async def delete_task(self, task_id: str) -> None:
@@ -473,6 +476,12 @@ class TaskManager:
                 f"Cannot delete task '{task_id}' while it is in status '{task_model.status.value}'. "
                 f"Cancel the task first."
             )
+
+        # Direct deletion invalidates tasks that are waiting for this task.
+        # Replacement rewires these references before calling delete_task().
+        for dependent in list(self._tasks.values()):
+            if dependent.depends_on == task_id:
+                await self._mark_dependency_failed(dependent, task_model)
 
         # Remove from in-memory dictionary
         if task_id in self._tasks:

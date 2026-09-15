@@ -548,7 +548,7 @@ async def test_replacement_dependency_references_survive_restore(task_manager_fi
 
 
 async def test_delete_task_does_not_delete_dependents(task_manager_fixture: TaskManager):
-    """Direct deletion removes one task and leaves dependency ownership explicit."""
+    """Direct deletion fails dependent tasks without deleting them."""
     tm = task_manager_fixture
     deleted_task = Task(
         name="hello_world_progress_task",
@@ -561,13 +561,22 @@ async def test_delete_task_does_not_delete_dependents(task_manager_fixture: Task
         status=TaskStatus.PENDING,
         depends_on=deleted_task.id,
     )
-    tm._tasks.update({deleted_task.id: deleted_task, dependent.id: dependent})
+    downstream = Task(
+        name="hello_world_progress_task",
+        task_type="hello_world_progress_task",
+        status=TaskStatus.PENDING,
+        depends_on=dependent.id,
+    )
+    tm._tasks.update({deleted_task.id: deleted_task, dependent.id: dependent, downstream.id: downstream})
 
     await tm.delete_task(deleted_task.id)
 
     assert tm.get_task_info(deleted_task.id) is None
     assert tm.get_task_info(dependent.id) is dependent
-    assert dependent.depends_on == deleted_task.id
+    assert dependent.status == TaskStatus.ERROR
+    assert deleted_task.id in dependent.error
+    assert downstream.status == TaskStatus.ERROR
+    assert dependent.id in downstream.error
 
 
 async def test_replacement_keeps_explicit_new_dependency(task_manager_fixture: TaskManager):
