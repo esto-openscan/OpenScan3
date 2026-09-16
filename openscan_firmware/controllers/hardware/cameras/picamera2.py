@@ -173,15 +173,6 @@ class Picamera2Controller(CameraController):
         self._strategy = self._strategies.get(self.camera.name, IMX519Strategy())
         self._is_closing = False
 
-        self.control_mapping = {
-            # 'shutter': 'ExposureTime',
-            'saturation': 'Saturation',
-            'contrast': 'Contrast',
-            'gain': 'AnalogueGain',
-            # 'awbg_red|blue': 'ColourGains', # ColourGains is a tuple of (red gain, blue gain)
-            # 'crop_x|y': 'ScalerCrop' # ScalerCrop is a tuple of (x_offset, y_offset, width, height)
-        }
-
         self._configure_resolutions()
         self._picam.configure(self.preview_config)
         self._picam.start()
@@ -193,20 +184,15 @@ class Picamera2Controller(CameraController):
         """This method is call on every change of settings."""
         self._set_busy(True)
         
-        # apply all settings
-        for setting, value in settings.__dict__.items():
-            if setting in self.control_mapping:
-                self._picam.set_controls({self.control_mapping[setting]: value})
+        # Apply the same manual controls to the live preview that are used by
+        # still captures. The still configuration supplies its own default
+        # frame-duration range.
+        manual_controls = self._manual_camera_controls(settings)
+        if manual_controls:
+            self._picam.set_controls(manual_controls)
 
-        # apply shutter
-        if settings.shutter is not None:
-            self._picam.set_controls({'ExposureTime': int(settings.shutter * 1000)})
-
-        # handle ColourGains (AWB gains) separately
-        red_gain = getattr(settings, 'awbg_red')
-        blue_gain = getattr(settings, 'awbg_blue')
-        if red_gain is not None and blue_gain is not None:
-            self._picam.set_controls({'ColourGains': (red_gain, blue_gain)})
+        # Rebuild the capture configurations so still captures use the new settings.
+        self._configure_resolutions()
 
         self._configure_focus(camera_mode="preview")  
 
@@ -214,25 +200,66 @@ class Picamera2Controller(CameraController):
         logger.debug(f"Applied settings to hardware: {settings.model_dump_json()}")
 
 
-    def _configure_resolutions(self, additional_settings=None):
-        """Create preview and photo configurations."""
+    @staticmethod
+    def _manual_camera_controls(settings):
+        """Build the manual camera controls from the current settings."""
+        controls = {}
+
+        setting_mapping = {
+            "saturation": "Saturation",
+            "contrast": "Contrast",
+            "gain": "AnalogueGain",
+        }
+        for setting_name, control_name in setting_mapping.items():
+            value = getattr(settings, setting_name)
+            if value is not None:
+                controls[control_name] = value
+
+        if settings.shutter is not None:
+            controls["ExposureTime"] = int(settings.shutter * 1000)
+
+        if settings.awbg_red is not None and settings.awbg_blue is not None:
+            controls["ColourGains"] = (settings.awbg_red, settings.awbg_blue)
+
+        return controls
+
+    def _still_capture_controls(self):
+        """Return controls that must be applied consistently to still captures."""
+        still_settings = self._photogrammetry_settings.copy()
+        manual_controls = self._manual_camera_controls(self.settings)
+        still_settings.update(manual_controls)
+        return still_settings
+
+    def _configure_resolutions(self, crop_rect=None):
+        """Create all camera configurations.
+
+        Preview uses the fixed photogrammetry controls. Still captures additionally
+        use the current manual exposure, gain, colour, saturation and contrast
+        settings. JPEG and DNG may supply ``crop_rect``; RGB and YUV deliberately
+        remain uncropped for image analysis.
+        """
         logger.debug("Configuring resolutions...")
         photogrammetry_settings = {"AeEnable": False,  # Disable auto exposure
                                    "NoiseReductionMode": 0,  # Disable noise reduction
                                    "AwbEnable": False  # Disable automatic white balance
                                    }
 
-        if additional_settings is not None:
-            photogrammetry_settings.update(additional_settings)
-
         self._photogrammetry_settings = photogrammetry_settings.copy()
-        self.preview_config = self._strategy.create_preview_config(self._picam, self.settings.preview_resolution, photogrammetry_settings)
-        self.photo_config = self._strategy.create_photo_config(self._picam, self.settings.photo_resolution, photogrammetry_settings)
-        self.raw_config = self._strategy.create_raw_config(self._picam, self.settings.photo_resolution, photogrammetry_settings)
-        self.yuv_config = self._strategy.create_yuv_config(self._picam, photogrammetry_settings)
-        self.rgb_config = self._strategy.create_rgb_config(self._picam, photogrammetry_settings)
+        still_settings = self._still_capture_controls()
 
-        logger.debug(f"Configured resolutions with {photogrammetry_settings}.")
+        still_resolution = self.settings.photo_resolution
+        if crop_rect is not None:
+            _, _, crop_width, crop_height = crop_rect
+            still_resolution = (crop_width, crop_height)
+            still_settings["ScalerCrop"] = crop_rect
+
+        self.preview_config = self._strategy.create_preview_config(self._picam, self.settings.preview_resolution, photogrammetry_settings)
+        self.photo_config = self._strategy.create_photo_config(self._picam, still_resolution, still_settings)
+        self.raw_config = self._strategy.create_raw_config(self._picam, still_resolution, still_settings)
+        self.yuv_config = self._strategy.create_yuv_config(self._picam, self._still_capture_controls())
+        self.rgb_config = self._strategy.create_rgb_config(self._picam, self._still_capture_controls())
+
+        logger.debug(f"Configured resolutions with preview controls {photogrammetry_settings} and still controls {still_settings}.")
 
 
     def _configure_cropping(self):
@@ -250,7 +277,10 @@ class Picamera2Controller(CameraController):
         return y_start, y_end, x_start, x_end
 
     def _configure_cropping_for_scalercrop(self):
-        """Configure cropping of the image based on settings. This is used for the photo and raw configurations."""
+        """Configure JPEG/DNG cropping and rebuild the shared camera configurations.
+
+        RGB and YUV configurations intentionally remain uncropped for analysis.
+        """
         full_x, full_y = self._picam.camera_properties["PixelArraySize"]
 
         crop_x = self.settings.crop_width / 100
@@ -269,15 +299,10 @@ class Picamera2Controller(CameraController):
         x_start = (full_x - width) // 2
         y_start = (full_y - height) // 2
 
-        update_controls = {
-            **getattr(self, "_photogrammetry_settings", {}),
-            "ScalerCrop": (x_start, y_start, width, height),
-        }
-        logger.debug("Updated ScalerCrop: ", update_controls)
-        self.photo_config = self._strategy.create_photo_config(self._picam, (width, height), update_controls)
-        self.raw_config = self._strategy.create_raw_config(self._picam, (width, height), update_controls)
+        crop_rect = (x_start, y_start, width, height)
+        self._configure_resolutions(crop_rect=crop_rect)
 
-        return (x_start, y_start, width, height)
+        return crop_rect
 
 
     def _configure_focus(self, camera_mode: str = None):

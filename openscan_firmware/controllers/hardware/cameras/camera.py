@@ -115,6 +115,11 @@ class CameraController(StatefulHardware):
         Acquires the hardware lock so a concurrent preview frame is never
         in-flight while the high-res capture runs.
 
+        For the Picamera2 implementation, JPEG and DNG captures honor the
+        configured crop. RGB and YUV captures intentionally return uncropped
+        arrays for image analysis, while camera exposure, gain, colour,
+        saturation and contrast settings apply to all still capture formats.
+
         Args:
             image_format (str, optional): Image format. Defaults to "jpeg".
 
@@ -167,22 +172,22 @@ class CameraController(StatefulHardware):
 
     @abc.abstractmethod
     def capture_rgb_array(self) -> PhotoData:
-        """Capture a numpy array to use for image analysis."""
+        """Capture an RGB array for image analysis; Picamera2 leaves it uncropped."""
         raise NotImplementedError
 
     @abc.abstractmethod
     def capture_yuv_array(self) -> PhotoData:
-        """Capture a yuv array for image analysis."""
+        """Capture a YUV array for image analysis; Picamera2 leaves it uncropped."""
         raise NotImplementedError
 
     @abc.abstractmethod
     def capture_dng(self) -> PhotoData:
-        """Capture a raw image and encode it to dng."""
+        """Capture a raw image and encode it to DNG; Picamera2 honors configured crop."""
         raise NotImplementedError
 
     @abc.abstractmethod
     def capture_jpeg(self) -> PhotoData:
-        """Capture an image and encode it to jpeg."""
+        """Capture an image and encode it to JPEG; Picamera2 honors configured crop."""
         raise NotImplementedError
 
 

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+
+- Fixed Picamera2 still captures ignoring updated shutter and other manual
+  image controls after switching from preview, especially when cropping was
+  enabled. RGB and YUV analysis captures remain uncropped.
+
 ## 0.13.0 - 2026-09-15
 
 ### Added
