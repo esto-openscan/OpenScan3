@@ -178,6 +178,7 @@ class Picamera2Controller(CameraController):
             "max": 15.0,
             "default": 12.0,
             "fallback": 11.9,
+            "timeout": 8.0,
         },
     }
 
@@ -236,23 +237,38 @@ class Picamera2Controller(CameraController):
         return Picamera2(tuning=tuning)
 
     def _autofocus_or_fallback(self) -> bool:
-        """Run autofocus and use the configured turntable focus on failure."""
-        success = self._picam.autofocus_cycle()
+        """Run profiled autofocus with a bounded fallback.
+
+        Cameras without an OpenScan focus profile keep Picamera2's normal
+        autofocus behaviour.
+        """
+        focus_profile = self._macro_focus_ranges.get((self.camera.scanner_model, self.camera.name))
+        if focus_profile is None:
+            return self._picam.autofocus_cycle()
+
+        try:
+            success = self._picam.autofocus_cycle(wait=focus_profile["timeout"])
+        except TimeoutError:
+            # The Picamera2 job would otherwise remain queued after its wait
+            # timed out. Clear it before switching the lens to manual mode.
+            self._picam.cancel_all_and_flush()
+            logger.warning(
+                "Autofocus timed out after %.1f seconds; using fallback LensPosition %.1f.",
+                focus_profile["timeout"],
+                focus_profile["fallback"],
+            )
+            success = False
+
         if success:
             return True
 
-        focus_range = self._macro_focus_ranges.get((self.camera.scanner_model, self.camera.name), {})
-        fallback_focus = focus_range.get("fallback", self.settings.manual_focus)
-        if fallback_focus is None:
-            fallback_focus = 12.0
-
         logger.warning(
             "Autofocus failed; using fallback LensPosition %.1f.",
-            fallback_focus,
+            focus_profile["fallback"],
         )
         self._picam.set_controls({
             "AfMode": controls.AfModeEnum.Manual,
-            "LensPosition": fallback_focus,
+            "LensPosition": focus_profile["fallback"],
         })
         return False
 
