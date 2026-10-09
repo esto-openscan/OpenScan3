@@ -434,6 +434,130 @@ class Picamera2Controller(CameraController):
 
         return locked_gains
 
+    def calibrate_exposure_and_lock(
+            self,
+            warmup_frames: int = 12,
+            stable_frames: int = 4,
+            timeout_s: float = 3.0,
+            tolerance_us: int = 200,
+            use_photo_config: bool = False,
+    ) -> tuple[float, float]:
+        """Determine exposure with analogue gain fixed at 1.0 and lock it.
+
+        By default, calibration runs in the currently active preview mode. If
+        ``use_photo_config`` is true, the camera temporarily switches to the
+        current still configuration, calibrates there, and switches back to
+        preview before returning.
+
+        Returns:
+            Tuple of ``(shutter_ms, analogue_gain)``.
+        """
+        self._set_busy(True)
+        previous_controls = self._manual_camera_controls(self.settings)
+        mode_switched = False
+        locked = False
+
+        try:
+            if use_photo_config:
+                # Keep the temporary still mode aligned with the configured
+                # JPEG/DNG crop before starting the calibration.
+                self._configure_cropping_for_scalercrop()
+                self._picam.switch_mode(self.photo_config, wait=True)
+                mode_switched = True
+
+            # Release exposure to AE, but keep analogue gain at unity. In
+            # Picamera2, ExposureTime=0 returns exposure time to auto mode.
+            self._picam.set_controls({
+                "AeEnable": True,
+                "ExposureTime": 0,
+                "AnalogueGain": 1.0,
+            })
+            self._picam.drop_frames(warmup_frames, wait=True)
+
+            last_exposure_us = None
+            steady = 0
+            best_result = None
+            start = time.monotonic()
+
+            while time.monotonic() - start < timeout_s:
+                metadata = self._picam.capture_metadata()
+                exposure_us = metadata.get("ExposureTime")
+                analogue_gain = metadata.get("AnalogueGain")
+                digital_gain = float(metadata.get("DigitalGain", 1.0))
+
+                if exposure_us is None or analogue_gain is None:
+                    continue
+
+                exposure_us = int(exposure_us)
+                analogue_gain = float(analogue_gain)
+
+                if (
+                    last_exposure_us is not None
+                    and abs(exposure_us - last_exposure_us) <= tolerance_us
+                ):
+                    steady += 1
+                else:
+                    steady = 0
+
+                last_exposure_us = exposure_us
+                best_result = (exposure_us, analogue_gain, digital_gain)
+
+                if steady >= stable_frames:
+                    break
+
+            if best_result is None or steady < stable_frames:
+                raise RuntimeError("Exposure did not stabilize.")
+
+            exposure_us, analogue_gain, digital_gain = best_result
+            if digital_gain > 1.05:
+                raise RuntimeError(
+                    "Exposure requires digital gain while analogue gain is fixed at 1.0."
+                )
+
+            if abs(analogue_gain - 1.0) > 0.05:
+                raise RuntimeError(
+                    f"Analogue gain did not remain at 1.0 (measured {analogue_gain:.3f})."
+                )
+
+            # Lock the values in hardware before persisting them in settings.
+            self._picam.set_controls({
+                "AeEnable": False,
+                "ExposureTime": exposure_us,
+                "AnalogueGain": 1.0,
+            })
+
+            shutter_ms = exposure_us / 1000.0
+            self.settings.update(shutter=shutter_ms, gain=1.0)
+            # Settings callbacks also update the busy state. Keep the
+            # calibration operation marked busy until mode restoration ends.
+            self._set_busy(True)
+            locked = True
+
+            logger.info(
+                "Exposure locked: %.3f ms, analogue gain 1.0",
+                shutter_ms,
+            )
+            return shutter_ms, 1.0
+
+        finally:
+            controls_after_mode_switch = (
+                self._manual_camera_controls(self.settings)
+                if locked
+                else previous_controls
+            )
+            if not mode_switched and not locked:
+                restore_controls = {"AeEnable": False}
+                restore_controls.update(controls_after_mode_switch)
+                self._picam.set_controls(restore_controls)
+
+            try:
+                if mode_switched:
+                    self._picam.switch_mode(self.preview_config, wait=True)
+                    if controls_after_mode_switch:
+                        self._picam.set_controls(controls_after_mode_switch)
+            finally:
+                self._set_busy(False)
+
     def restart_camera(self):
         """Restart the camera and reconfigure resolution."""
         self._picam.stop()
